@@ -1,0 +1,32 @@
+{
+  "name": "workout",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "doc"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "env-cmd nodemon server/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kimgostring/2021Project_Workout.git"
+  },
+  "author": "kimgostring",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kimgostring/2021Project_Workout/issues"
+  },
+  "homepage": "https://github.com/kimgostring/2021Project_Workout#readme",
+  "dependencies": {
+    "bcrypt": "^5.0.1",
+    "env-cmd": "^10.1.0",
+    "express": "^4.17.1",
+    "mongoose": "^6.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.12"
+  }
+}
