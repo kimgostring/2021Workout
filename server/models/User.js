@@ -1,6 +1,5 @@
 const { Schema, model } = require("mongoose");
 const bcrypt = require("bcrypt");
-const saltRounds = 10;
 
 const userSchema = new Schema(
   {
@@ -10,25 +9,27 @@ const userSchema = new Schema(
     age: Number,
     sex: Number,
     introduction: { type: String, maxlength: 50 },
+    token: String,
+    tokenExp: Date,
   },
   { timestamps: true }
 );
 
 // 비밀번호 암호화
-userSchema.pre("save", function (next) {
+userSchema.pre("save", async function (next) {
+  const saltRounds = 10;
   const user = this;
 
   if (user.isModified("password")) {
-    bcrypt.genSalt(saltRounds, (err, salt) => {
-      if (err) return next(err);
+    try {
+      const salt = await bcrypt.genSalt(saltRounds);
+      const hash = await bcrypt.hash(user.password, salt);
 
-      bcrypt.hash(user.password, salt, (err, hash) => {
-        if (err) return next(err);
-
-        user.password = hash;
-        next();
-      });
-    });
+      user.password = hash;
+      next();
+    } catch (err) {
+      return next(err);
+    }
   } else next();
 });
 

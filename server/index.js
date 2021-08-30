@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
-const { userRouter } = require("./routes");
+const cookieParser = require("cookie-parser");
+const { userRouter, authRouter } = require("./routes");
 
 const app = express();
 
@@ -19,7 +20,11 @@ const server = async () => {
     console.log("Mongo DB connected. ");
 
     app.use(express.json());
+    app.use(cookieParser());
+
+    // 라우터 추가
     app.use("/users", userRouter);
+    app.use("/auth", authRouter);
 
     app.listen(PORT, () => {
       console.log(`server listening at port ${PORT}. `);
