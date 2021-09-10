@@ -1,7 +1,12 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
-const { userRouter, authRouter } = require("./routes");
+const {
+  userRouter,
+  authRouter,
+  folderRouter,
+  videoRouter,
+} = require("./routes");
 
 const app = express();
 
@@ -14,17 +19,18 @@ const server = async () => {
     await mongoose.connect(MONGO_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      //   useCreateIndex: true,
-      //   useFindAndModify: false,
     });
     console.log("Mongo DB connected. ");
 
     app.use(express.json());
+    app.use(express.urlencoded({ extended: true })); // 쿼리 스트링에 한글 있는 경우 처리 필요
     app.use(cookieParser());
 
     // 라우터 추가
     app.use("/users", userRouter);
     app.use("/auth", authRouter);
+    app.use("/folders", folderRouter);
+    app.use("/videos", videoRouter);
 
     app.listen(PORT, () => {
       console.log(`server listening at port ${PORT}. `);

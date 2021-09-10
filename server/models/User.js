@@ -3,11 +3,23 @@ const bcrypt = require("bcrypt");
 
 const userSchema = new Schema(
   {
-    email: { type: String, unique: true, required: true, trim: true },
-    password: String,
-    nickname: { type: String, unique: true, required: true, maxlength: 15 },
-    age: Number,
-    sex: Number,
+    email: {
+      type: String,
+      unique: true,
+      required: true,
+      trim: true,
+      minlength: 1,
+    },
+    password: { type: String, required: true, minlength: 5 },
+    nickname: {
+      type: String,
+      unique: true,
+      required: true,
+      minlength: 1,
+      maxlength: 15,
+    },
+    age: { type: Number, min: 0 },
+    sex: { type: Number, min: 1, max: 2 }, // 1 - 남성, 2 - 여성
     introduction: { type: String, maxlength: 50 },
     token: String,
     tokenExp: Date,
@@ -33,5 +45,5 @@ userSchema.pre("save", async function (next) {
   } else next();
 });
 
-const User = model("User", userSchema);
+const User = model("user", userSchema);
 module.exports = { User };

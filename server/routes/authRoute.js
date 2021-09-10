@@ -51,11 +51,13 @@ authRouter.post("/login", async (req, res) => {
 authRouter.post("/logout", auth, async (req, res) => {
   try {
     // 미들웨어 안전하게 넘어온 경우(로그인된 경우)에만
-    const { user } = req;
-    user.token = "";
-    user.tokenExp = "";
+    let { user } = req;
 
-    await user.save();
+    user = await User.findOneAndUpdate(
+      { _id: user._id },
+      { $unset: { token: "", tokenExp: "" } },
+      { new: true }
+    );
     res.cookie("x_auth", "").send({ success: true, user });
   } catch (err) {
     return res.status(400).send({ err: err.message });
