@@ -389,7 +389,7 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
 
     const [originVideo, newFolder] = await Promise.all([
       Video.findOne({ _id: originVideoId }),
-      Folder.findOne({ _id: newFolderid }),
+      Folder.findOne({ _id: newFolderId }),
     ]);
     if (!originVideo)
       return res.status(400).send({ err: "video does not exist. " });
@@ -407,8 +407,10 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
       thumbnail: originVideo.thumbnail,
       originDuration: originVideo.originDuration,
       duration: originVideo.duration,
-      tags: originFolder.tags,
-      folder: newFolder,
+      tags: originVideo.tags,
+      "folder._id": newFolder._id,
+      "folder.name": newFolder.name,
+      "folder.sharingLevel": newFolder.sharingLevel,
       user: newFolder.user,
     });
     if (originVideo.start !== undefined) newVideo.start = originVideo.start;
@@ -417,9 +419,9 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
     // 새 영상 폴더에 넣어주기
     newFolder.videos.push(newVideo);
 
-    [countedOriginVideo] = await Promise.all([
+    const [countedOriginVideo] = await Promise.all([
       Video.findOneAndUpdate(
-        { _id: originVideoId, user: { $ne: originVideo.user } },
+        { _id: originVideoId, user: { $ne: newFolder.user } },
         { $inc: { sharedCount: 1 } },
         { new: true }
       ),
@@ -429,7 +431,7 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
     res.send({
       success: true,
       newVideo,
-      originVideo: countedOriginVideo ? counterOriginVideo : originVideo,
+      originVideo: countedOriginVideo ? countedOriginVideo : originVideo,
     });
   } catch (err) {
     return res.status(400).send({ err: err.message });
