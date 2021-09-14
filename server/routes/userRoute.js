@@ -56,9 +56,18 @@ userRouter.post("/", async (req, res) => {
 
     // 등록
     const user = new User(req.body);
-    const folder = new Folder({ name: "기본 폴더", user, isDefault: true });
+    const defaultFolder = new Folder({
+      name: "기본 폴더",
+      user,
+      isDefault: true,
+    });
+    const secretFolder = new Folder({
+      name: "비밀 폴더",
+      user,
+      publicLevel: 0,
+    });
 
-    await Promise.all([user.save(), folder.save()]);
+    await Promise.all([user.save(), defaultFolder.save(), secretFolder.save()]);
     res.send({ success: true, user });
   } catch (err) {
     return res.status(400).send({ err: err.message });

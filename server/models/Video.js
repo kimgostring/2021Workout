@@ -5,10 +5,10 @@ const videoSchema = new Schema(
     folder: {
       _id: { type: Types.ObjectId, required: true, ref: "folder", index: true },
       name: { type: String, required: true },
-      sharingLevel: {
+      publicLevel: {
         type: Number,
         required: true,
-        min: 1,
+        min: 0,
         max: 3,
         default: 1,
       },

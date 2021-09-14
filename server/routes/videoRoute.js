@@ -145,17 +145,17 @@ videoRouter.get("/", async (req, res) => {
     let { keyword, sort, strict } = req.query;
     if (keyword && isValidObjectId(keyword))
       // keyword로 id 넘어온 경우
-      keyword = { _id: keyword, "folder.sharingLevel": { $gte: 2 } };
+      keyword = { _id: keyword, "folder.publicLevel": { $gte: 2 } };
     // id가 아닌 경우, 키워드 검색
     else if (keyword && strict === "true")
       // strict 옵션 있을 경우, 입력된 문장과 띄어쓰기까지 완전히 일치하는 것 골라옴
       keyword = {
         $text: { $search: `"${keyword}"` },
-        "folder.sharingLevel": 3,
+        "folder.publicLevel": 3,
       };
     else if (keyword)
-      keyword = { $text: { $search: keyword }, "folder.sharingLevel": 3 };
-    else keyword = { sharingLevel: 3 }; // 기본 검색
+      keyword = { $text: { $search: keyword }, "folder.publicLevel": 3 };
+    else keyword = { publicLevel: 3 }; // 기본 검색
     if (sort)
       switch (sort) {
         case "asc": // 오름차순
@@ -191,6 +191,8 @@ videoRouter.get("/:videoId", async (req, res) => {
 
     const video = await Video.findOne({ _id: videoId });
     if (!video) return res.status(400).send({ err: "video does not exist." });
+    if (video.folder.publicLevel === 0)
+      return res.status(400).send({ err: "cannot read secret video. " });
 
     res.send({ success: true, video });
   } catch (err) {
@@ -388,7 +390,7 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
       return res.status(400).send({ err: "invalid folder id. " });
 
     const [originVideo, newFolder] = await Promise.all([
-      Video.findOne({ _id: originVideoId }),
+      Video.findOne({ _id: originVideoId, "folder.publicLevel": { $gte: 1 } }),
       Folder.findOne({ _id: newFolderId }),
     ]);
     if (!originVideo)
@@ -396,7 +398,7 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
     if (!newFolder)
       return res.status(400).send({ err: "folder does not exist. " });
     if (
-      originVideo.folder.sharingLevel === 1 &&
+      originVideo.folder.publicLevel === 1 &&
       originVideo.user.toString() !== newFolder.user.toString()
     )
       return res.status(400).send({ err: "video disabled for coyping. " });
@@ -410,7 +412,7 @@ videoRouter.post("/:videoId/copy", async (req, res) => {
       tags: originVideo.tags,
       "folder._id": newFolder._id,
       "folder.name": newFolder.name,
-      "folder.sharingLevel": newFolder.sharingLevel,
+      "folder.publicLevel": newFolder.publicLevel,
       user: newFolder.user,
     });
     if (originVideo.start !== undefined) newVideo.start = originVideo.start;
@@ -447,7 +449,11 @@ videoRouter.post("/:videoId/bookmark", async (req, res) => {
 
     const [video] = await Promise.all([
       Video.findOneAndUpdate(
-        { _id: videoId, isBookmarked: false },
+        {
+          _id: videoId,
+          isBookmarked: false,
+          "folder.publicLevel": { $gte: 1 },
+        },
         { isBookmarked: true },
         { new: true }
       ),
@@ -477,7 +483,7 @@ videoRouter.post("/:videoId/unbookmark", async (req, res) => {
 
     const [video] = await Promise.all([
       Video.findOneAndUpdate(
-        { _id: videoId, isBookmarked: true },
+        { _id: videoId, isBookmarked: true, "folder.publicLevel": { $gte: 1 } },
         { isBookmarked: false },
         { new: true }
       ),

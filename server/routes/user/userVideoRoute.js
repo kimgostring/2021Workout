@@ -18,9 +18,11 @@ userVideoRouter.get("/", async (req, res) => {
     else if (!isBookmarked || isBookmarked === "false") isBookmarked = {};
     else return res.status(400).send({ err: "invalid isBookmarked. " });
 
-    if (keyword && isValidObjectId(keyword)) keyword = { _id: keyword };
-    else if (keyword) keyword = { $text: { $search: keyword } };
-    else keyword = {}; // 기본 검색
+    if (keyword && isValidObjectId(keyword))
+      keyword = { _id: keyword, publicLevel: { $gte: 1 } };
+    else if (keyword)
+      keyword = { $text: { $search: keyword }, publicLevel: { $gte: 1 } };
+    else keyword = { publicLevel: { $gte: 1 } }; // 기본 검색
     if (sort)
       switch (sort) {
         case "asc": // 오름차순

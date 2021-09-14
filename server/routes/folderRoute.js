@@ -19,7 +19,7 @@ folderRouter.post(
   async (req, res) => {
     try {
       const { youtubePlaylistName, videos } = req;
-      const { userId, sharingLevel = 1, tags, name } = req.body;
+      const { userId, publicLevel = 1, tags, name } = req.body;
       // 유저 확인
       if (!userId || !isValidObjectId(userId))
         return res.status(400).send({ err: "invalid user id. " });
@@ -31,11 +31,11 @@ folderRouter.post(
         return res
           .status(400)
           .send({ err: "name or youtubePlaylistId is required." });
-      // sharingLevel 확인
-      if (!(sharingLevel === 1 || sharingLevel === 2 || sharingLevel === 3))
+      // publicLevel 확인
+      if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
         return res
           .status(400)
-          .send({ err: "sharingLevel must be a 1-3 integer. " });
+          .send({ err: "publicLevel must be a 1-3 integer. " });
       // tags 확인
       if (tags) {
         if (!Array.isArray(tags))
@@ -72,14 +72,13 @@ folderRouter.get("/", async (req, res) => {
     let { keyword, sort, strict } = req.query;
     if (keyword && isValidObjectId(keyword))
       // keyword로 id 넘어온 경우
-      keyword = { _id: keyword, sharingLevel: { $gte: 2 } };
+      keyword = { _id: keyword, publicLevel: { $gte: 2 } };
     // id가 아닌 경우, 키워드 검색
     else if (keyword && strict === "true")
       // strict 옵션 있을 경우, 입력된 문장과 띄어쓰기까지 완전히 일치하는 것 골라옴
-      keyword = { $text: { $search: `"${keyword}"` }, sharingLevel: 3 };
-    else if (keyword)
-      keyword = { $text: { $search: keyword }, sharingLevel: 3 };
-    else keyword = { sharingLevel: 3 }; // 기본 검색
+      keyword = { $text: { $search: `"${keyword}"` }, publicLevel: 3 };
+    else if (keyword) keyword = { $text: { $search: keyword }, publicLevel: 3 };
+    else keyword = { publicLevel: 3 }; // 기본 검색
     if (sort)
       switch (sort) {
         case "asc": // 오름차순
@@ -113,7 +112,10 @@ folderRouter.get("/:folderId", async (req, res) => {
     if (!isValidObjectId(folderId))
       return res.status(400).send({ err: "invalid folder id. " });
 
-    const folder = await Folder.findOne({ _id: folderId });
+    const folder = await Folder.findOne({
+      _id: folderId,
+      publicLevel: { $gte: 1 },
+    });
     if (!folder)
       return res.status(400).send({ err: "folder does not exist. " });
 
@@ -127,26 +129,26 @@ folderRouter.get("/:folderId", async (req, res) => {
 folderRouter.patch("/:folderId", async (req, res) => {
   try {
     const { folderId } = req.params;
-    const { name, sharingLevel, tags } = req.body;
+    const { name, publicLevel, tags } = req.body;
     if (!isValidObjectId(folderId))
       return res.status(400).send({ err: "invaild folder id. " });
 
     // 수정사항 없는 경우
-    if (!name && !sharingLevel && !tags)
+    if (!name && !publicLevel && !tags)
       return res
         .status(400)
         .send({ err: "at least one of information must be required. " });
     // name 확인
     if (name !== undefined && (typeof name !== "string" || name.length <= 0))
       return res.status(400).send({ err: "name must be a string. " });
-    // sharingLevel 확인
+    // publicLevel 확인
     if (
-      sharingLevel !== undefined &&
-      !(sharingLevel === 1 || sharingLevel === 2 || sharingLevel === 3)
+      publicLevel !== undefined &&
+      !(publicLevel === 1 || publicLevel === 2 || publicLevel === 3)
     )
       return res
         .status(400)
-        .send({ err: "sharingLevel must be a 1-3 integer. " });
+        .send({ err: "publicLevel must be a 1-3 integer. " });
     // tags 확인
     if (tags) {
       if (!Array.isArray(tags))
@@ -158,26 +160,31 @@ folderRouter.patch("/:folderId", async (req, res) => {
     }
 
     let promises = Promise.all([
-      Folder.findOneAndUpdate({ _id: folderId }, req.body, {
-        new: true,
-      }),
+      Folder.findOneAndUpdate(
+        { _id: folderId, publicLevel: { $gte: 1 } },
+        req.body,
+        { new: true }
+      ),
     ]);
 
-    // name 또는 sharingLevel 바뀔 경우, 내장 영상들 정보도 수정되어야 함
+    // name 또는 publicLevel 바뀔 경우, 내장 영상들 정보도 수정되어야 함
     let videosUpdateObj = {};
     if (name) videosUpdateObj = { ...videosUpdateObj, "folder.name": name };
-    if (sharingLevel)
+    if (publicLevel)
       videosUpdateObj = {
         ...videosUpdateObj,
-        "folder.sharingLevel": sharingLevel,
+        "folder.publicLevel": publicLevel,
       };
-    if (name || sharingLevel)
+    if (name || publicLevel)
       promises = Promise.all([
         promises,
         Video.updateMany({ "folder._id": folderId }, videosUpdateObj),
       ]);
 
     const [folder] = await promises;
+    if (!folder)
+      return res.status(400).send({ err: "folder does not exist. " });
+
     res.send({ success: true, folder });
   } catch (err) {
     return res.status(400).send({ err: err.message });
@@ -196,10 +203,16 @@ folderRouter.delete("/:folderId", async (req, res) => {
       return res.status(400).send({ err: "folder does not exist. " });
     if (folder.isDefault)
       return res.status(400).send({ err: "default folder cannot delete. " });
+    if (folder.publicLevel === 0)
+      return res.status(400).send({ err: "secret folder cannot delete. " });
 
     // 폴더 삭제하는 작업 프로미스에 추가
     let promises = Promise.all([
-      Folder.deleteOne({ _id: folderId, isDefault: false }),
+      Folder.deleteOne({
+        _id: folderId,
+        isDefault: false,
+        publicLevel: { $gte: 1 },
+      }),
     ]);
 
     if (
@@ -240,7 +253,7 @@ folderRouter.post("/:folderId/bookmark", async (req, res) => {
       return res.status(400).send({ err: "invalid folder id. " });
 
     const folder = await Folder.findOneAndUpdate(
-      { _id: folderId, isBookmarked: false },
+      { _id: folderId, isBookmarked: false, publicLevel: { $gte: 1 } },
       { isBookmarked: true },
       { new: true }
     );
@@ -264,7 +277,7 @@ folderRouter.post("/:folderId/unbookmark", async (req, res) => {
       return res.status(400).send({ err: "invalid folder id. " });
 
     const folder = Folder.findOneAndUpdate(
-      { _id: folderId, isBookmarked: true },
+      { _id: folderId, isBookmarked: true, publicLevel: { $gte: 1 } },
       { isBookmarked: false },
       { new: true }
     );
@@ -291,15 +304,15 @@ folderRouter.post("/:folderId/copy", async (req, res) => {
       return res.status(400).send({ err: "invaild folder id. " });
 
     const [originFolder, user] = await Promise.all([
-      Folder.findOne({ _id: originFolderId }),
+      Folder.findOne({ _id: originFolderId, publicLevel: { $gte: 1 } }),
       User.findOne({ _id: userId }),
     ]);
     if (!originFolder)
       return res.status(400).send({ err: "folder does not exist. " });
     if (!user) return res.status(400).send({ err: "user does not exist. " });
     if (
-      // 내 폴더가 아닌 폴더를 복사할 때, sharingLevel이 1이면 권한 없음
-      originFolder.sharingLevel === 1 &&
+      // 내 폴더가 아닌 폴더를 복사할 때, publicLevel이 1이면 권한 없음
+      originFolder.publicLevel === 1 &&
       originFolder.user.toString() !== userId
     )
       return res.status(400).send({ err: "folder disabled for coyping. " });
@@ -330,7 +343,7 @@ folderRouter.post("/:folderId/copy", async (req, res) => {
         tags: originVideo.tags,
         "folder._id": newFolder._id,
         "folder.name": newFolder.name,
-        "folder.sharingLevel": newFolder.sharingLevel,
+        "folder.publicLevel": newFolder.publicLevel,
         user: user._id,
       });
       if (originVideo.start !== undefined) newVideo.start = originVideo.start;
@@ -378,7 +391,7 @@ folderRouter.post("/:folderId/setAsDefault", async (req, res) => {
       return res.status(400).send({ err: "invaild folder id. " });
 
     const [newDefaultFolder, oldDefaultFolder] = await Promise.all([
-      Folder.findOne({ _id: folderId, user: userId }),
+      Folder.findOne({ _id: folderId, user: userId, publicLevel: { $gte: 1 } }),
       Folder.findOne({ user: userId, isDefault: true }),
     ]);
     if (!oldDefaultFolder)
