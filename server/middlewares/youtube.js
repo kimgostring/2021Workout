@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { isValidObjectId } = require("mongoose");
 const { Video } = require("../models");
 
 // videoId로부터 정보 얻어와 video 문서 만들어 제공해주는 미들웨어
@@ -111,36 +112,39 @@ const getVideosFromPlaylistId = async (req, res, next) => {
   }
 };
 
-// 이미 유저가 저장한 비디오 제거하여 다음으로 넘기지 않는 미들웨어
-const rmSameVideos = async (req, res, next) => {
+// 이미 저장된 비디오인지 확인하는 미들웨어
+const checkExistedVideos = async (req, res, next) => {
   try {
     let { video, videos } = req;
-    const { willRmSameVideo = false, userId } = req.body;
-    if (willRmSameVideo) {
-      if (video) {
-        const userVideo = await Video.findOne({
-          user: userId,
-          youtubeId: video.youtubeId,
-        });
-        if (userVideo) video = null;
-      }
-      if (videos) {
-        const userVideos = await Promise.all(
-          videos.map((video) => {
-            return Video.findOne({ user: userId, youtubeId: video.youtubeId });
-          })
-        );
-        // DB에서 불려와진 video를 확인하고, 해당 인덱스의 video 제거
-        const indexs = [];
-        userVideos.forEach((userVideo, index) => {
-          if (userVideo) indexs.push(index);
-        });
-        let delCount = 0;
-        indexs.forEach((index) => {
-          videos.splice(index - delCount++, 1);
-        });
+    const { userId } = req.body;
+    if (!userId || !isValidObjectId(userId))
+      return res.status(400).send({ err: "invaild user id." });
+
+    if (video) {
+      const userVideo = await Video.findOne({
+        user: userId,
+        youtubeId: video.youtubeId,
+      });
+      if (userVideo) {
+        userVideo.isExisted = true;
+        video = userVideo;
       }
     }
+    if (videos.length !== 0) {
+      const userVideos = await Promise.all(
+        videos.map((video) => {
+          return Video.findOne({ user: userId, youtubeId: video.youtubeId });
+        })
+      );
+      // DB에서 video 불려와진 경우, 해당 인덱스에 끼워넣기
+      userVideos.forEach((userVideo, index) => {
+        if (userVideo) {
+          userVideo.isExisted = true;
+          videos[index] = userVideo;
+        }
+      });
+    }
+
     req.video = video;
     req.videos = videos;
     next();
@@ -152,5 +156,5 @@ const rmSameVideos = async (req, res, next) => {
 module.exports = {
   getVideoFromId,
   getVideosFromPlaylistId,
-  rmSameVideos,
+  checkExistedVideos,
 };

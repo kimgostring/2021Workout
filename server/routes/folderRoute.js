@@ -4,7 +4,7 @@ const { Video, Folder, User } = require("../models");
 const { folderVideoRouter } = require("./folder");
 const {
   getVideosFromPlaylistId,
-  rmSameVideos,
+  checkExistedVideos,
 } = require("../middlewares/youtube");
 
 const folderRouter = Router();
@@ -15,11 +15,17 @@ folderRouter.use("/:folderId/videos", folderVideoRouter);
 folderRouter.post(
   "/",
   getVideosFromPlaylistId,
-  rmSameVideos,
+  checkExistedVideos,
   async (req, res) => {
     try {
       const { youtubePlaylistName, videos } = req;
-      const { userId, publicLevel = 1, tags, name } = req.body;
+      const {
+        userId,
+        publicLevel = 1,
+        tags,
+        name,
+        willMoveExistedVideos = true,
+      } = req.body;
       // 유저 확인
       if (!userId || !isValidObjectId(userId))
         return res.status(400).send({ err: "invalid user id. " });
@@ -51,14 +57,47 @@ folderRouter.post(
         ...req.body,
         name: `${name ? `${name}` : `${youtubePlaylistName}`}`,
         user: user._id,
-        videos,
-      });
-      videos.forEach((video) => {
-        video.folder = folder;
-        video.user = user._id;
       });
 
-      await Promise.all([folder.save(), Video.insertMany(videos)]);
+      const willPushedVideos = [],
+        willInsertedVideos = [],
+        willUpdatedVideos = [];
+      let originFolderId;
+      videos.forEach((video) => {
+        originFolderId = video.folder._id;
+        video.folder = folder;
+        video.user = user._id;
+
+        // promises에 저장
+        if (willMoveExistedVideos && video.isExisted) {
+          // 폴더 이동하는 경우, 원래의 폴더에서 pull 필요
+          promises = Promise.all([
+            promises,
+            Folder.updateOne(
+              { _id: originFolderId },
+              { $pull: { videos: { _id: video._id } } }
+            ),
+          ]);
+          willPushedVideos.push(video);
+          willUpdatedVideos.push(video);
+        } else if (!willMoveExistedVideos && video.isExisted) {
+          // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
+        } else {
+          // 새 영상 그냥 저장
+          willPushedVideos.push(video);
+          willInsertedVideos.push(video);
+        }
+      });
+      folder.videos = willPushedVideos;
+
+      await Promise.all([
+        folder.save(),
+        Video.insertMany(willPushedVideos),
+        Video.updateMany(
+          { _id: { $in: willUpdatedVideos.map((video) => video._id) } },
+          { folder }
+        ),
+      ]);
       res.send({ success: true, folder });
     } catch (err) {
       return res.status(400).send({ err: err.message });
@@ -318,7 +357,7 @@ folderRouter.post("/:folderId/copy", async (req, res) => {
       return res.status(400).send({ err: "folder disabled for coyping. " });
 
     // 새 폴더 생성
-    newFolder = new Folder({
+    const newFolder = new Folder({
       name: originFolder.name,
       youtubeId: originFolder.youtubeId,
       tags: originFolder.tags,

@@ -5,7 +5,7 @@ const { Video, Folder } = require("../models");
 const {
   getVideoFromId,
   getVideosFromPlaylistId,
-  rmSameVideos,
+  checkExistedVideos,
 } = require("../middlewares/youtube");
 
 const videoRouter = Router();
@@ -16,11 +16,18 @@ videoRouter.post(
   "/",
   getVideoFromId,
   getVideosFromPlaylistId,
-  rmSameVideos,
+  checkExistedVideos,
   async (req, res) => {
     try {
       const { video, videos } = req;
-      const { folderId, title, tags, start, end } = req.body;
+      const {
+        folderId,
+        title,
+        tags,
+        start,
+        end,
+        willMoveExistedVideos = true,
+      } = req.body;
       // youtubeVideoId와 youtubePlaylistId 둘 다 입력 안 된 경우
       if (!video && videos.length === 0)
         return res.status(400).send({
@@ -35,9 +42,12 @@ videoRouter.post(
       if (!folder)
         return res.status(400).send({ err: "folder does not exist. " });
 
+      let promises = null;
+      const willPushedVideos = [],
+        willInsertedVideos = [],
+        willUpdatedVideos = [];
       if (video) {
         // youtubeVideoId 입력한 경우
-
         const endSec = moment.duration(video.originDuration).asSeconds();
         // start, end 확인
         if (
@@ -94,6 +104,7 @@ videoRouter.post(
         }
 
         // 필드 추가
+        const originFolderId = video.folder._id;
         video.folder = folder;
         video.user = folder.user;
         video.duration = duration;
@@ -101,38 +112,75 @@ videoRouter.post(
         if (title) video.title = title;
         if (start !== undefined && start !== 0) video.start = start;
         if (end !== undefined && end !== endSec) video.end = end;
+
+        // promises에 저장
+        if (willMoveExistedVideos && video.isExisted) {
+          // 원래의 폴더에서 pull 필요
+          promises = Promise.all([
+            promises,
+            Folder.updateOne(
+              { _id: originFolderId },
+              { $pull: { videos: { _id: video._id } } }
+            ),
+          ]);
+          willPushedVideos.push(video);
+          willUpdatedVideos.push(video);
+        } else if (!willMoveExistedVideos && video.isExisted) {
+          // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
+        } else {
+          // 새 영상, 그냥 저장
+          willPushedVideos.push(video);
+          willInsertedVideos.push(video);
+        }
       }
 
       if (videos.length !== 0) {
         // youtubePlaylistId 입력한 경우
         // 필드 추가
+        let originFolderId;
         videos.forEach((video) => {
+          originFolderId = video.folder._id;
           video.folder = folder;
           video.user = folder.user;
+
+          // promises에 저장
+          if (willMoveExistedVideos && video.isExisted) {
+            // 원래의 폴더에서 pull 필요
+            promises = Promise.all([
+              promises,
+              Folder.updateOne(
+                { _id: originFolderId },
+                { $pull: { videos: { _id: video._id } } }
+              ),
+            ]);
+            willPushedVideos.push(video);
+            willUpdatedVideos.push(video);
+          } else if (!willMoveExistedVideos && video.isExisted) {
+            // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
+          } else {
+            // 새 영상, 그냥 저장
+            willPushedVideos.push(video);
+            willInsertedVideos.push(video);
+          }
         });
       }
 
       // DB에 저장
-      let promises = null,
-        videosAddArr = [];
-      if (video) {
-        promises = Promise.all([promises, video.save()]);
-        videosAddArr.push(video);
-      }
-      if (videos.length !== 0) {
-        promises = Promise.all([promises, Video.insertMany(videos)]);
-        videosAddArr.push(...videos);
-      }
       promises = Promise.all([
         promises,
+        Video.insertMany(willInsertedVideos),
+        Video.updateMany(
+          { _id: { $in: willUpdatedVideos.map((video) => video._id) } },
+          { folder }
+        ),
         Folder.updateOne(
           { _id: folderId },
-          { $push: { videos: { $each: videosAddArr } } }
+          { $push: { videos: { $each: willPushedVideos } } }
         ),
       ]);
-      await promises;
 
-      res.send({ success: true, videos: videosAddArr });
+      await promises;
+      res.send({ success: true, videos: willPushedVideos });
     } catch (err) {
       return res.status(400).send({ err: err.message });
     }
