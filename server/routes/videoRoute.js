@@ -7,6 +7,7 @@ const {
   getVideosFromPlaylistId,
   checkExistedVideos,
 } = require("../middlewares/youtube");
+const { mkVideoFromVideoId } = require("../middlewares/video");
 
 const videoRouter = Router();
 
@@ -355,6 +356,7 @@ videoRouter.patch("/:videoId", async (req, res) => {
       ]);
 
     [video] = await promises;
+    if (!viedo) return res.status(400).send({ err: "video does not exist. " });
     res.send({ success: true, video });
   } catch (err) {
     return res.status(400).send({ err: err.message });
@@ -428,65 +430,107 @@ videoRouter.post("/:videoId/move", async (req, res) => {
 });
 
 // 영상 복제, controller resource
-videoRouter.post("/:videoId/copy", async (req, res) => {
-  try {
-    const { videoId: originVideoId } = req.params;
-    const { newFolderId } = req.body;
-    if (!isValidObjectId(originVideoId))
-      return res.status(400).send({ err: "invalid video id. " });
-    if (!newFolderId || !isValidObjectId(newFolderId))
-      return res.status(400).send({ err: "invalid folder id. " });
+videoRouter.post(
+  "/:videoId/copy",
+  mkVideoFromVideoId,
+  checkExistedVideos,
+  async (req, res) => {
+    try {
+      const { video: newVideo, originVideo } = req;
+      const { videoId: originVideoId } = req.params;
+      const { newFolderId, userId, willMoveExistedVideo = true } = req.body;
+      if (!newVideo || !originVideo)
+        return res.status(400).send({ err: "video does not exist. " });
 
-    const [originVideo, newFolder] = await Promise.all([
-      Video.findOne({ _id: originVideoId, "folder.publicLevel": { $gte: 1 } }),
-      Folder.findOne({ _id: newFolderId }),
-    ]);
-    if (!originVideo)
-      return res.status(400).send({ err: "video does not exist. " });
-    if (!newFolder)
-      return res.status(400).send({ err: "folder does not exist. " });
-    if (
-      originVideo.folder.publicLevel === 1 &&
-      originVideo.user.toString() !== newFolder.user.toString()
-    )
-      return res.status(400).send({ err: "video disabled for coyping. " });
+      const [newFolder, user] = await Promise.all([
+        Folder.findOne({
+          _id: newFolderId,
+          user: userId,
+        }),
+        User.findOne({ _id: userId }),
+      ]);
+      if (!newFolder)
+        return res
+          .status(400)
+          .send({ err: "folder does not exist or not owned by user. " });
+      if (!user) return res.status(400).send({ err: "user does not exist. " });
 
-    const newVideo = new Video({
-      title: originVideo.title,
-      youtubeId: originVideo.youtubeId,
-      thumbnail: originVideo.thumbnail,
-      originDuration: originVideo.originDuration,
-      duration: originVideo.duration,
-      tags: originVideo.tags,
-      "folder._id": newFolder._id,
-      "folder.name": newFolder.name,
-      "folder.publicLevel": newFolder.publicLevel,
-      user: newFolder.user,
-    });
-    if (originVideo.start !== undefined) newVideo.start = originVideo.start;
-    if (originVideo.end !== undefined) newVideo.end = originVideo.end;
+      if (
+        originVideo.folder.publicLevel === 1 &&
+        originVideo.user.toString() !== newFolder.user.toString()
+      )
+        return res.status(400).send({ err: "video disabled for coyping. " });
 
-    // 새 영상 폴더에 넣어주기
-    newFolder.videos.push(newVideo);
+      newVideo.folder._id = newFolder._id;
+      newVideo.folder.name = newFolder.name;
+      newVideo.folder.publicLevel = newFolder.publicLevel;
+      newVideo.user = newFolder.user;
 
-    const [countedOriginVideo] = await Promise.all([
-      Video.findOneAndUpdate(
-        { _id: originVideoId, user: { $ne: newFolder.user } },
-        { $inc: { sharedCount: 1 } },
-        { new: true }
-      ),
-      newVideo.save(),
-      newFolder.save(),
-    ]);
-    res.send({
-      success: true,
-      newVideo,
-      originVideo: countedOriginVideo ? countedOriginVideo : originVideo,
-    });
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
+      let promises = null,
+        pushedNum = 0,
+        insertedNum = 0,
+        movedNum = 0;
+
+      if (!newVideo.isExisted) {
+        // 새 영상, 그냥 새로 저장
+        promises = Promise.all([
+          promises,
+          Folder.updateOne(
+            { _id: newFolderId },
+            { $push: { videos: newVideo } }
+          ),
+          newVideo.save(),
+        ]);
+        pushedNum++;
+        insertedNum++;
+      } else if (
+        newVideo.isExisted &&
+        willMoveExistedVideo &&
+        newFolderId !== originVideo.folder._id.toString()
+      ) {
+        // 기존 영상 폴더 이동
+        promises = Promise.all([
+          promises,
+          Folder.updateOne(
+            { _id: originVideo.folder._id },
+            { $pull: { videos: { _id: originVideoId } } }
+          ),
+          Folder.updateOne(
+            { _id: newFolderId },
+            { $push: { videos: newVideo } }
+          ),
+          newVideo.save(),
+        ]);
+        pushedNum++;
+        movedNum++;
+      }
+      // (!willMoveExistedVideo && newVideo.isExisted)
+      // || (newVideo.isExisted && willMoveExistedVideo
+      // && newFolderId === originVideo.folder._id.toString())
+      // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
+
+      promises = Promise.all([
+        Video.updateOne(
+          { _id: originVideoId, user: { $ne: newFolder.user } },
+          { $inc: { sharedCount: 1 } }
+        ),
+        promises,
+      ]);
+
+      const [countedOriginVideo] = await promises;
+      res.send({
+        success: true,
+        newVideo,
+        pushedNum,
+        insertedNum,
+        movedNum,
+        isSharedWithOther: countedOriginVideo.matchedCount ? true : false,
+      });
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
   }
-});
+);
 
 // 영상 북마크, controller resource
 videoRouter.post("/:videoId/bookmark", async (req, res) => {

@@ -6,6 +6,7 @@ const {
   getVideosFromPlaylistId,
   checkExistedVideos,
 } = require("../middlewares/youtube");
+const { mkVideosFromVideoSetId } = require("../middlewares/video");
 
 const folderRouter = Router();
 
@@ -333,91 +334,122 @@ folderRouter.post("/:folderId/unbookmark", async (req, res) => {
 });
 
 // 폴더 복사하기, controller resource
-folderRouter.post("/:folderId/copy", async (req, res) => {
-  try {
-    const { folderId: originFolderId } = req.params;
-    const { userId } = req.body;
-    if (!userId || !isValidObjectId(userId))
-      return res.status(400).send({ err: "invaild user id. " });
-    if (!isValidObjectId(originFolderId))
-      return res.status(400).send({ err: "invaild folder id. " });
+folderRouter.post(
+  "/:folderId/copy",
+  mkVideosFromVideoSetId,
+  checkExistedVideos,
+  async (req, res) => {
+    try {
+      const { videos, folder: originFolder } = req;
+      const { folderId: originFolderId } = req.params;
+      const {
+        userId,
+        publicLevel = 1,
+        willMoveExistedVideos = true,
+      } = req.body;
+      if (!originFolder)
+        return res.status(400).send({ err: "folder does not exist. " });
+      if (!originFolderId || !isValidObjectId(originFolderId))
+        return res.status(400).send({ err: "invalid folder id. " });
 
-    const [originFolder, user] = await Promise.all([
-      Folder.findOne({ _id: originFolderId, publicLevel: { $gte: 1 } }),
-      User.findOne({ _id: userId }),
-    ]);
-    if (!originFolder)
-      return res.status(400).send({ err: "folder does not exist. " });
-    if (!user) return res.status(400).send({ err: "user does not exist. " });
-    if (
-      // 내 폴더가 아닌 폴더를 복사할 때, publicLevel이 1이면 권한 없음
-      originFolder.publicLevel === 1 &&
-      originFolder.user.toString() !== userId
-    )
-      return res.status(400).send({ err: "folder disabled for coyping. " });
+      if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
+        return res
+          .status(400)
+          .send({ err: "publicLevel must be a 1-3 integer. " });
 
-    // 새 폴더 생성
-    const newFolder = new Folder({
-      name: originFolder.name,
-      youtubeId: originFolder.youtubeId,
-      tags: originFolder.tags,
-      user: user._id,
-    });
+      const user = await User.findOne({ _id: userId });
+      if (!user) return res.status(400).send({ err: "user does not exist. " });
 
-    // 새 영상들 생성
-    const originVideos = await Video.find({
-      _id: {
-        $in: originFolder.videos.map((video) => {
-          return video._id;
-        }),
-      },
-    });
-    const newVideos = originVideos.map((originVideo) => {
-      const newVideo = new Video({
-        title: originVideo.title,
-        youtubeId: originVideo.youtubeId,
-        thumbnail: originVideo.thumbnail,
-        originDuration: originVideo.originDuration,
-        duration: originVideo.duration,
-        tags: originVideo.tags,
-        "folder._id": newFolder._id,
-        "folder.name": newFolder.name,
-        "folder.publicLevel": newFolder.publicLevel,
-        user: user._id,
+      if (
+        // 내 폴더가 아닌 폴더를 복사할 때, publicLevel이 1이면 권한 없음
+        originFolder.publicLevel === 1 &&
+        originFolder.user.toString() !== userId
+      )
+        return res.status(400).send({ err: "folder disabled for coyping. " });
+
+      // 새 폴더 생성
+      const newFolder = new Folder({
+        name: originFolder.name,
+        youtubeId: originFolder.youtubeId,
+        tags: originFolder.tags,
+        user: userId,
       });
-      if (originVideo.start !== undefined) newVideo.start = originVideo.start;
-      if (originVideo.end !== undefined) newVideo.end = originVideo.end;
 
-      return newVideo;
-    });
+      // 영상 정보 추가 및 분류
+      let promises = null;
+      const willPushedVideos = [],
+        willInsertedVideos = [],
+        willMovedVideos = [];
+      videos.forEach((video) => {
+        video.folder._id = newFolder._id;
+        video.folder.name = newFolder.name;
+        video.folder.publicLevel = newFolder.publicLevel;
+        video.user = userId;
 
-    // 새 폴더에 영상들 넣어주기
-    newFolder.videos = newVideos;
+        if (!video.isExisted) {
+          // 새 영상 그냥 저장
+          willPushedVideos.push(video);
+          willInsertedVideos.push(video);
+        } else if (video.isExisted && willMoveExistedVideos) {
+          // 폴더 이동하는 경우, 원래의 폴더에서 pull 필요
+          promises = Promise.all([
+            promises,
+            Folder.updateOne(
+              { _id: originFolderId },
+              { $pull: { videos: { _id: video._id } } }
+            ),
+          ]);
+          willPushedVideos.push(video);
+          willMovedVideos.push(video);
+        }
+        // (!willMoveExistedVideo && newVideo.isExisted)
+        // || (newVideo.isExisted && willMoveExistedVideo)
+        // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
+      });
 
-    const [countedOriginFolder] = await Promise.all([
-      Folder.findOneAndUpdate(
-        { _id: originFolderId, user: { $ne: user._id } },
-        { $inc: { sharedCount: 1 } },
-        { new: true }
-      ),
-      Video.updateMany(
-        { "folder._id": originFolderId, user: { $ne: user._id } },
-        { $inc: { sharedCount: 1 } }
-      ),
-      newFolder.save(),
-      Video.insertMany(newVideos),
-    ]);
+      // 새 폴더에 영상들 넣어주기
+      newFolder.videos = willPushedVideos;
 
-    res.send({
-      success: true,
-      newFolder,
-      newVideos,
-      originFolder: countedOriginFolder ? countedOriginFolder : originFolder,
-    });
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
+      promises = Promise.all([
+        // origin - sharedCount 증가
+        Folder.updateOne(
+          { _id: originFolderId, user: { $ne: userId } },
+          { $inc: { sharedCount: 1 } }
+        ),
+        Video.updateMany(
+          {
+            "folder._id": originFolderId,
+            youtubeId: {
+              $in: willInsertedVideos.map((video) => video.youtubeId),
+            },
+            user: { $ne: userId },
+          },
+          { $inc: { sharedCount: 1 } }
+        ),
+        // new - folder 추가, video 추가, 기존 존재하던 video 이동
+        newFolder.save(),
+        Video.insertMany(willInsertedVideos),
+        Video.updateMany(
+          { _id: { $in: willMovedVideos.map((video) => video._id) } },
+          { folder: newFolder }
+        ),
+        promises, // 원래 폴더에서 옮길 Video pull
+      ]);
+
+      const [countedOriginFolder] = await promises;
+      res.send({
+        success: true,
+        newFolder,
+        pushedNum: willPushedVideos.length,
+        insertedNum: willInsertedVideos.length,
+        movedNum: willMovedVideos.length,
+        isSharedWithOther: countedOriginFolder.matchedCount ? true : false,
+      });
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
   }
-});
+);
 
 // 기본폴더로 지정, controller resource
 folderRouter.post("/:folderId/setAsDefault", async (req, res) => {
