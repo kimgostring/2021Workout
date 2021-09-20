@@ -84,7 +84,49 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
   }
 };
 
+// 이미 저장된 비디오인지 확인하는 미들웨어
+const checkExistedVideos = async (req, res, next) => {
+  try {
+    let { video, videos } = req;
+    const { userId } = req.body;
+    if (!userId || !isValidObjectId(userId))
+      return res.status(400).send({ err: "invaild user id." });
+
+    if (video) {
+      const userVideo = await Video.findOne({
+        user: userId,
+        youtubeId: video.youtubeId,
+      });
+      if (userVideo) {
+        userVideo.isExisted = true;
+        video = userVideo;
+      }
+    }
+    if (videos.length !== 0) {
+      const userVideos = await Promise.all(
+        videos.map((video) => {
+          return Video.findOne({ user: userId, youtubeId: video.youtubeId });
+        })
+      );
+      // DB에서 video 불려와진 경우, 해당 인덱스에 끼워넣기
+      userVideos.forEach((userVideo, index) => {
+        if (userVideo) {
+          userVideo.isExisted = true;
+          videos[index] = userVideo;
+        }
+      });
+    }
+
+    req.video = video;
+    req.videos = videos;
+    next();
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+};
+
 module.exports = {
   mkVideoFromVideoId,
   mkVideosFromVideoSetId,
+  checkExistedVideos,
 };

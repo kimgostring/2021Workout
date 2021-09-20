@@ -1,9 +1,8 @@
 const axios = require("axios");
-const { isValidObjectId } = require("mongoose");
 const { Video } = require("../models");
 
 // videoId로부터 정보 얻어와 video 문서 만들어 제공해주는 미들웨어
-const getVideoFromId = async (req, res, next) => {
+const mkVideoFromYoutubeVideoId = async (req, res, next) => {
   try {
     const { YOUTUBE_URI, YOUTUBE_KEY } = process.env;
     const { youtubeVideoId } = req.body;
@@ -41,7 +40,7 @@ const getVideoFromId = async (req, res, next) => {
 };
 
 // playlistId로부터 정보 얻어와 video 문서 배열 만들어 제공해주는 미들웨어
-const getVideosFromPlaylistId = async (req, res, next) => {
+const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
   try {
     const { YOUTUBE_URI, YOUTUBE_KEY } = process.env;
     const { youtubePlaylistId } = req.body;
@@ -112,49 +111,7 @@ const getVideosFromPlaylistId = async (req, res, next) => {
   }
 };
 
-// 이미 저장된 비디오인지 확인하는 미들웨어
-const checkExistedVideos = async (req, res, next) => {
-  try {
-    let { video, videos } = req;
-    const { userId } = req.body;
-    if (!userId || !isValidObjectId(userId))
-      return res.status(400).send({ err: "invaild user id." });
-
-    if (video) {
-      const userVideo = await Video.findOne({
-        user: userId,
-        youtubeId: video.youtubeId,
-      });
-      if (userVideo) {
-        userVideo.isExisted = true;
-        video = userVideo;
-      }
-    }
-    if (videos.length !== 0) {
-      const userVideos = await Promise.all(
-        videos.map((video) => {
-          return Video.findOne({ user: userId, youtubeId: video.youtubeId });
-        })
-      );
-      // DB에서 video 불려와진 경우, 해당 인덱스에 끼워넣기
-      userVideos.forEach((userVideo, index) => {
-        if (userVideo) {
-          userVideo.isExisted = true;
-          videos[index] = userVideo;
-        }
-      });
-    }
-
-    req.video = video;
-    req.videos = videos;
-    next();
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
-  }
-};
-
 module.exports = {
-  getVideoFromId,
-  getVideosFromPlaylistId,
-  checkExistedVideos,
+  mkVideoFromYoutubeVideoId,
+  mkVideosFromYoutubePlaylistId,
 };

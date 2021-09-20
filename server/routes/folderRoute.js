@@ -3,10 +3,10 @@ const { isValidObjectId } = require("mongoose");
 const { Video, Folder, User } = require("../models");
 const { folderVideoRouter } = require("./folder");
 const {
-  getVideosFromPlaylistId,
+  mkVideosFromYoutubePlaylistId,
+  mkVideosFromVideoSetId,
   checkExistedVideos,
-} = require("../middlewares/youtube");
-const { mkVideosFromVideoSetId } = require("../middlewares/video");
+} = require("../middlewares");
 
 const folderRouter = Router();
 
@@ -15,7 +15,7 @@ folderRouter.use("/:folderId/videos", folderVideoRouter);
 // folder 생성
 folderRouter.post(
   "/",
-  getVideosFromPlaylistId,
+  mkVideosFromYoutubePlaylistId,
   checkExistedVideos,
   async (req, res) => {
     try {

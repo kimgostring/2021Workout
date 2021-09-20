@@ -2,7 +2,7 @@ const { Router } = require("express");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { User } = require("../models");
-const { auth } = require("../middlewares/auth");
+const { auth } = require("../middlewares");
 
 const authRouter = Router();
 const HOUR = 60 * 60 * 1000;

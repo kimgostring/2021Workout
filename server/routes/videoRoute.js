@@ -3,11 +3,11 @@ const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
 const { Video, Folder } = require("../models");
 const {
-  getVideoFromId,
-  getVideosFromPlaylistId,
+  mkVideoFromYoutubeVideoId,
+  mkVideosFromYoutubePlaylistId,
+  mkVideoFromVideoId,
   checkExistedVideos,
-} = require("../middlewares/youtube");
-const { mkVideoFromVideoId } = require("../middlewares/video");
+} = require("../middlewares");
 
 const videoRouter = Router();
 
@@ -15,8 +15,8 @@ const videoRouter = Router();
 let duration;
 videoRouter.post(
   "/",
-  getVideoFromId,
-  getVideosFromPlaylistId,
+  mkVideoFromYoutubeVideoId,
+  mkVideosFromYoutubePlaylistId,
   checkExistedVideos,
   async (req, res) => {
     try {
