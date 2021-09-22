@@ -27,7 +27,7 @@ videoRouter.post(
         tags,
         start,
         end,
-        willMoveExistedVideos = true,
+        willMoveExistedVideos = false,
       } = req.body;
       // youtubeVideoId와 youtubePlaylistId 둘 다 입력 안 된 경우
       if (!video && videos.length === 0)
@@ -46,7 +46,7 @@ videoRouter.post(
       let promises = null;
       const willPushedVideos = [],
         willInsertedVideos = [],
-        willUpdatedVideos = [];
+        willMovedVideos = [];
       if (video) {
         // youtubeVideoId 입력한 경우
         const endSec = moment.duration(video.originDuration).asSeconds();
@@ -106,7 +106,9 @@ videoRouter.post(
 
         // 필드 추가
         const originFolderId = video.folder._id;
-        video.folder = folder;
+        video.folder._id = folder._id;
+        video.folder.name = folder.name;
+        video.folder.publicLevel = folder.publicLevel;
         video.user = folder.user;
         video.duration = duration;
 
@@ -125,7 +127,7 @@ videoRouter.post(
             ),
           ]);
           willPushedVideos.push(video);
-          willUpdatedVideos.push(video);
+          willMovedVideos.push(video);
         } else if (!willMoveExistedVideos && video.isExisted) {
           // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
         } else {
@@ -155,7 +157,7 @@ videoRouter.post(
               ),
             ]);
             willPushedVideos.push(video);
-            willUpdatedVideos.push(video);
+            willMovedVideos.push(video);
           } else if (!willMoveExistedVideos && video.isExisted) {
             // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
           } else {
@@ -171,7 +173,7 @@ videoRouter.post(
         promises,
         Video.insertMany(willInsertedVideos),
         Video.updateMany(
-          { _id: { $in: willUpdatedVideos.map((video) => video._id) } },
+          { _id: { $in: willMovedVideos.map((video) => video._id) } },
           { folder }
         ),
         Folder.updateOne(
@@ -181,7 +183,13 @@ videoRouter.post(
       ]);
 
       await promises;
-      res.send({ success: true, videos: willPushedVideos });
+      res.send({
+        success: true,
+        videos: willPushedVideos,
+        pushedVideoNum: willPushedVideos.length,
+        insertedVideoNum: willInsertedVideos.length,
+        movedVideoNum: willMovedVideos.length,
+      });
     } catch (err) {
       return res.status(400).send({ err: err.message });
     }
@@ -438,7 +446,7 @@ videoRouter.post(
     try {
       const { video: newVideo, originVideo } = req;
       const { videoId: originVideoId } = req.params;
-      const { newFolderId, userId, willMoveExistedVideo = true } = req.body;
+      const { newFolderId, userId, willMoveExistedVideo = false } = req.body;
       if (!newVideo || !originVideo)
         return res.status(400).send({ err: "video does not exist. " });
 
@@ -467,10 +475,9 @@ videoRouter.post(
       newVideo.user = newFolder.user;
 
       let promises = null,
-        pushedNum = 0,
-        insertedNum = 0,
-        movedNum = 0;
-
+        pushedVideoNum = 0,
+        insertedVideoNum = 0,
+        movedVideoNum = 0;
       if (!newVideo.isExisted) {
         // 새 영상, 그냥 새로 저장
         promises = Promise.all([
@@ -481,8 +488,8 @@ videoRouter.post(
           ),
           newVideo.save(),
         ]);
-        pushedNum++;
-        insertedNum++;
+        pushedVideoNum++;
+        insertedVideoNum++;
       } else if (
         newVideo.isExisted &&
         willMoveExistedVideo &&
@@ -501,8 +508,8 @@ videoRouter.post(
           ),
           newVideo.save(),
         ]);
-        pushedNum++;
-        movedNum++;
+        pushedVideoNum++;
+        movedVideoNum++;
       }
       // (!willMoveExistedVideo && newVideo.isExisted)
       // || (newVideo.isExisted && willMoveExistedVideo
@@ -520,10 +527,10 @@ videoRouter.post(
       const [countedOriginVideo] = await promises;
       res.send({
         success: true,
-        newVideo,
-        pushedNum,
-        insertedNum,
-        movedNum,
+        video: newVideo,
+        pushedVideoNum,
+        insertedVideoNum,
+        movedVideoNum,
         isSharedWithOther: countedOriginVideo.matchedCount ? true : false,
       });
     } catch (err) {

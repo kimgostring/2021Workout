@@ -22,10 +22,11 @@ folderRouter.post(
       const { youtubePlaylistName, videos } = req;
       const {
         userId,
+        youtubePlaylistId,
         publicLevel = 1,
         tags,
         name,
-        willMoveExistedVideos = true,
+        willMoveExistedVideos = false,
       } = req.body;
       // 유저 확인
       if (!userId || !isValidObjectId(userId))
@@ -59,18 +60,26 @@ folderRouter.post(
         name: `${name ? `${name}` : `${youtubePlaylistName}`}`,
         user: user._id,
       });
+      if (youtubePlaylistName) folder.youtubeId = youtubePlaylistId;
 
+      let originFolderId,
+        promises = null;
       const willPushedVideos = [],
         willInsertedVideos = [],
-        willUpdatedVideos = [];
-      let originFolderId;
+        willMovedVideos = [];
       videos.forEach((video) => {
         originFolderId = video.folder._id;
-        video.folder = folder;
-        video.user = user._id;
+        video.folder._id = folder._id;
+        video.folder.name = folder.name;
+        video.folder.publicLevel = folder.publicLevel;
+        video.user = userId;
 
         // promises에 저장
-        if (willMoveExistedVideos && video.isExisted) {
+        if (!video.isExisted) {
+          // 새 영상 그냥 저장
+          willPushedVideos.push(video);
+          willInsertedVideos.push(video);
+        } else if (video.isExisted && willMoveExistedVideos) {
           // 폴더 이동하는 경우, 원래의 폴더에서 pull 필요
           promises = Promise.all([
             promises,
@@ -80,26 +89,29 @@ folderRouter.post(
             ),
           ]);
           willPushedVideos.push(video);
-          willUpdatedVideos.push(video);
-        } else if (!willMoveExistedVideos && video.isExisted) {
-          // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
-        } else {
-          // 새 영상 그냥 저장
-          willPushedVideos.push(video);
-          willInsertedVideos.push(video);
+          willMovedVideos.push(video);
         }
+        // (!willMoveExistedVideo && video.isExisted)
+        // || (video.isExisted && willMoveExistedVideo)
+        // 원래 폴더에 그래도 놔둠, 변경사항 저장하지 않음
       });
       folder.videos = willPushedVideos;
 
       await Promise.all([
         folder.save(),
-        Video.insertMany(willPushedVideos),
+        Video.insertMany(willInsertedVideos),
         Video.updateMany(
-          { _id: { $in: willUpdatedVideos.map((video) => video._id) } },
+          { _id: { $in: willMovedVideos.map((video) => video._id) } },
           { folder }
         ),
       ]);
-      res.send({ success: true, folder });
+      res.send({
+        success: true,
+        folder,
+        pushedVideoNum: willPushedVideos.length,
+        insertedVideoNum: willInsertedVideos.length,
+        movedVideoNum: willMovedVideos.length,
+      });
     } catch (err) {
       return res.status(400).send({ err: err.message });
     }
@@ -345,7 +357,7 @@ folderRouter.post(
       const {
         userId,
         publicLevel = 1,
-        willMoveExistedVideos = true,
+        willMoveExistedVideos = false,
       } = req.body;
       if (!originFolder)
         return res.status(400).send({ err: "folder does not exist. " });
@@ -391,7 +403,7 @@ folderRouter.post(
           willPushedVideos.push(video);
           willInsertedVideos.push(video);
         } else if (video.isExisted && willMoveExistedVideos) {
-          // 폴더 이동하는 경우, 원래의 폴더에서 pull 필요
+          // 폴더 이동하는 경우, 원래의 폴더에서 pull 필d요
           promises = Promise.all([
             promises,
             Folder.updateOne(
@@ -439,10 +451,10 @@ folderRouter.post(
       const [countedOriginFolder] = await promises;
       res.send({
         success: true,
-        newFolder,
-        pushedNum: willPushedVideos.length,
-        insertedNum: willInsertedVideos.length,
-        movedNum: willMovedVideos.length,
+        folder: newFolder,
+        pushedVideoNum: willPushedVideos.length,
+        insertedVideoNum: willInsertedVideos.length,
+        movedVideoNum: willMovedVideos.length,
         isSharedWithOther: countedOriginFolder.matchedCount ? true : false,
       });
     } catch (err) {
