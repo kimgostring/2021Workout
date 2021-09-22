@@ -4,8 +4,9 @@ const cookieParser = require("cookie-parser");
 const {
   userRouter,
   authRouter,
-  folderRouter,
   videoRouter,
+  folderRouter,
+  playlistRouter,
 } = require("./routes");
 
 const app = express();
@@ -29,8 +30,9 @@ const server = async () => {
     // 라우터 추가
     app.use("/users", userRouter);
     app.use("/auth", authRouter);
-    app.use("/folders", folderRouter);
     app.use("/videos", videoRouter);
+    app.use("/folders", folderRouter);
+    app.use("/playlists", playlistRouter);
 
     app.listen(PORT, () => {
       console.log(`server listening at port ${PORT}. `);

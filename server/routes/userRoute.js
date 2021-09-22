@@ -2,12 +2,17 @@ const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
 const bcrypt = require("bcrypt");
 const { User, Video, Folder } = require("../models");
-const { userVideoRouter, userFolderRouter } = require("./user");
+const {
+  userVideoRouter,
+  userFolderRouter,
+  userPlaylistRouter,
+} = require("./user");
 
 const userRouter = Router();
 
 userRouter.use("/:userId/videos", userVideoRouter);
 userRouter.use("/:userId/folders", userFolderRouter);
+userRouter.use("/:userId/playlists", userPlaylistRouter);
 
 // 유저 생성
 userRouter.post("/", async (req, res) => {

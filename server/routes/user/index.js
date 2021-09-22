@@ -1,4 +1,5 @@
 module.exports = {
-  ...require("./userFolderRoute"),
   ...require("./userVideoRoute"),
+  ...require("./userFolderRoute"),
+  ...require("./userPlaylistRoute"),
 };

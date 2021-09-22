@@ -1,5 +1,5 @@
 const { isValidObjectId } = require("mongoose");
-const { Video, Folder } = require("../models");
+const { Video, Folder, Playlist } = require("../models");
 
 const mkVideoFromVideoId = async (req, res, next) => {
   try {
@@ -36,11 +36,17 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
   try {
     // 미들웨어 사용된 곳에 따라 다른 컬렉션의 문서 id 주게 됨,
     // 변수명에 따라 각 문서와 관련된 Video 문서들 전부 찾아 리턴
-    const { folderId } = req.params;
-    if (!folderId || !isValidObjectId(folderId))
-      return res.status(400).send({ err: "invaild folder id. " });
+    const { folderId, playlistId } = req.params;
+    if (!folderId && !playlistId)
+      return res.status(400).send({ err: "at least one set id is required. " });
 
-    let videos = [],
+    if (folderId && !isValidObjectId(folderId))
+      return res.status(400).send({ err: "invaild folder id. " });
+    if (playlistId && !isValidObjectId(playlistId))
+      return res.status(400).send({ err: "invaild playlist id. " });
+
+    let videoSetName = null,
+      videos = [],
       originVideos = [];
 
     if (folderId) {
@@ -48,12 +54,31 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
       if (!folder)
         return res.status(400).send({ err: "folder does not exist. " });
       req.folder = folder;
+      videoSetName = folder.name;
 
       originVideos = await Promise.all(
         folder.videos.map((video) => {
           return Video.findOne({ _id: video._id, user: folder.user });
         })
       );
+    } else if (playlistId) {
+      const playlist = await Playlist.findOne({ _id: playlistId });
+      if (!playlist)
+        return res.status(400).send({ err: "playlist does not exist. " });
+      req.playlist = playlist;
+      videoSetName = playlist.name;
+
+      originVideos = await Promise.all(
+        playlist.videos.map((video) => {
+          return Video.findOne({ _id: video._id, user: playlist.user });
+        })
+      );
+      originVideos.forEach((video, index) => {
+        if (playlist.videos[index].start !== undefined)
+          video.start = playlist.videos[index].start;
+        if (playlist.videos[index].end !== undefined)
+          video.end = playlist.videos[index].end;
+      });
     }
 
     // 각 video가 제대로 불려와졌는지 확인
@@ -77,6 +102,7 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
     });
 
     req.videos = videos;
+    req.videoSetName = videoSetName;
     req.originVideos = originVideos;
     next();
   } catch (err) {
@@ -87,7 +113,7 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
 // 이미 저장된 비디오인지 확인하는 미들웨어
 const checkExistedVideos = async (req, res, next) => {
   try {
-    let { video, videos } = req;
+    let { video, videos, playlist } = req;
     const { userId } = req.body;
     if (!userId || !isValidObjectId(userId))
       return res.status(400).send({ err: "invaild user id." });
@@ -102,7 +128,7 @@ const checkExistedVideos = async (req, res, next) => {
         video = userVideo;
       }
     }
-    if (videos.length !== 0) {
+    if (Array.isArray(videos) && videos.length !== 0) {
       const userVideos = await Promise.all(
         videos.map((video) => {
           return Video.findOne({ user: userId, youtubeId: video.youtubeId });
@@ -112,6 +138,13 @@ const checkExistedVideos = async (req, res, next) => {
       userVideos.forEach((userVideo, index) => {
         if (userVideo) {
           userVideo.isExisted = true;
+          if (playlist) {
+            // playlist에 영상 추가하는 작업일 경우, 플리의 start, end 정보 따라야 함
+            if (videos[index].start !== undefined)
+              userVideo.start = videos[index].start;
+            if (videos[index].end !== undefined)
+              userVideo.end = videos[index].end;
+          }
           videos[index] = userVideo;
         }
       });
