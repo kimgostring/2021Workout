@@ -14,7 +14,7 @@ const playlistSchema = Schema(
         maxlength: 10,
       },
     ],
-    duration: { type: String, required: true }, // 총 길이
+    duration: { type: Number, required: true }, // 총 길이
     playInfo: {
       failCount: { type: Number, default: 0 },
       successCount: { type: Number, default: 0 },
@@ -28,7 +28,7 @@ const playlistSchema = Schema(
         title: { type: String, required: true },
         start: Number, // playlist에서 따로 지정한 경우
         end: Number,
-        duration: { type: String, required: true },
+        duration: { type: Number, required: true },
         thumbnail: { type: String, required: true },
         repeatition: { type: Number, min: 1, default: 1 },
       },

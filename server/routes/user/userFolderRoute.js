@@ -37,12 +37,6 @@ userFolderRouter.get("/", async (req, res) => {
         case "desPlayed": // 플레이많은순
           sort = { "playInfo.successCount": -1 };
           break;
-        case "ascDuration": // 영상길이순
-          sort = { duration: 1 };
-          break;
-        case "desDuration":
-          sort = { duration: -1 };
-          break;
         case "latest": // 최신순
           sort = { createdAt: -1 };
           break;

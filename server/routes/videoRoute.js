@@ -12,7 +12,6 @@ const {
 const videoRouter = Router();
 
 // video 추가
-let duration;
 videoRouter.post(
   "/",
   mkVideoFromYoutubeVideoId,
@@ -49,7 +48,7 @@ videoRouter.post(
         willMovedVideos = [];
       if (video) {
         // youtubeVideoId 입력한 경우
-        const endSec = moment.duration(video.originDuration).asSeconds();
+        const endSec = video.originDuration;
         // start, end 확인
         if (
           (start !== undefined &&
@@ -76,18 +75,19 @@ videoRouter.post(
             .send({ err: "end must be shorter than video duration. " });
 
         // duration 결정
+        let duration;
         if (start !== undefined && end !== undefined)
           duration = moment
             .duration(end * 1000)
             .subtract(start * 1000)
-            .toISOString();
+            .asSeconds();
         else if (start !== undefined)
           duration = moment
             .duration(endSec * 1000)
             .subtract(start * 1000)
-            .toISOString();
+            .asSeconds();
         else if (end !== undefined)
-          duration = moment.duration(end * 1000).toISOString();
+          duration = moment.duration(end * 1000).asSeconds();
         else duration = video.originDuration;
 
         // title 확인, 생략 가능
@@ -224,6 +224,12 @@ videoRouter.get("/", async (req, res) => {
         case "desShared": // 공유많은순
           sort = { sharedCount: -1 };
           break;
+        case "ascDuration": // 영상길이순
+          sort = { duration: 1 };
+          break;
+        case "desDuration":
+          sort = { duration: -1 };
+          break;
         case "latest": // 최신순
           sort = { createdAt: -1 };
           break;
@@ -289,7 +295,7 @@ videoRouter.patch("/:videoId", async (req, res) => {
     if (!video) return res.status(400).send({ err: "video does not exist. " });
 
     // start, end 확인
-    const endSec = moment.duration(video.originDuration).asSeconds();
+    const endSec = video.originDuration;
     // 새 start/end 입력되지 않은 경우, 기존의 값 이용하여 비교 필요
     if (start === undefined) start = video.start;
     if (end === undefined) end = video.end;
@@ -317,14 +323,14 @@ videoRouter.patch("/:videoId", async (req, res) => {
       duration = moment
         .duration(end * 1000)
         .subtract(start * 1000)
-        .toISOString();
+        .asSeconds();
     else if (start !== undefined)
       duration = moment
         .duration(endSec * 1000)
         .subtract(start * 1000)
-        .toISOString();
+        .asSeconds();
     else if (end !== undefined)
-      duration = moment.duration(end * 1000).toISOString();
+      duration = moment.duration(end * 1000).asSeconds();
     else duration = video.duration;
 
     // start와 end가 초기화될 경우, 필드 삭제

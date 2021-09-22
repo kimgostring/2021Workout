@@ -25,7 +25,7 @@ const folderSchema = new Schema(
       {
         _id: { type: Types.ObjectId, required: true, ref: "video" },
         title: { type: String, required: true },
-        duration: { type: String, required: true },
+        duration: { type: Number, required: true },
         thumbnail: { type: String, required: true },
         isBookmarked: { type: Boolean, required: true, default: false },
       },

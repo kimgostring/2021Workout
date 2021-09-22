@@ -1,4 +1,5 @@
 const axios = require("axios");
+const moment = require("moment");
 const { Video } = require("../models");
 
 // videoId로부터 정보 얻어와 video 문서 만들어 제공해주는 미들웨어
@@ -21,7 +22,9 @@ const mkVideoFromYoutubeVideoId = async (req, res, next) => {
       if (!videoFromYoutube)
         return res.status(400).send({ err: "invalid youtube video id. " });
       const { title } = videoFromYoutube.snippet;
-      const originDuration = videoFromYoutube.contentDetails.duration;
+      const originDuration = moment
+        .duration(videoFromYoutube.contentDetails.duration)
+        .asSeconds();
       const thumbnail = videoFromYoutube.snippet.thumbnails.medium.url;
 
       video = new Video({
@@ -93,8 +96,9 @@ const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
               `${YOUTUBE_URI}/videos?key=${YOUTUBE_KEY}&part=snippet,contentDetails&id=${videoInfo.youtubeId}`
             )
             .then((res) => {
-              videoInfo.originDuration =
-                res.data.items[0].contentDetails.duration;
+              videoInfo.originDuration = moment
+                .duration(res.data.items[0].contentDetails.duration)
+                .asSeconds();
               videoInfo.duration = videoInfo.originDuration;
             });
         })

@@ -26,8 +26,8 @@ const videoSchema = new Schema(
     ],
     start: Number,
     end: Number,
-    originDuration: { type: String, required: true },
-    duration: { type: String, required: true },
+    originDuration: { type: Number, required: true },
+    duration: { type: Number, required: true },
     playInfo: {
       failCount: { type: Number, default: 0 },
       successCount: { type: Number, default: 0 },
