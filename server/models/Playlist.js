@@ -21,17 +21,20 @@ const playlistSchema = Schema(
       avgStar: { type: Number, min: 0, max: 5 },
       avgPlaytime: String,
     },
-    videos: [
-      {
-        _id: { type: Types.ObjectId, required: true, ref: "video" },
-        youtubeId: { type: String, required: true },
-        title: { type: String, required: true },
-        start: Number, // playlist에서 따로 지정한 경우
-        end: Number,
-        duration: { type: Number, required: true },
-        thumbnail: { type: String, required: true },
-        repeatition: { type: Number, min: 1, default: 1 },
-      },
+    days: [
+      [
+        {
+          _id: { type: Types.ObjectId, required: true, ref: "video" },
+          youtubeId: { type: String, required: true },
+          title: { type: String, required: true },
+          start: Number, // playlist에서 따로 지정한 경우
+          end: Number,
+          originDuration: { type: Number, required: true },
+          duration: { type: Number, required: true },
+          thumbnail: { type: String, required: true },
+          repeatition: { type: Number, min: 1, default: 1 },
+        },
+      ],
     ],
     successNotification: { type: String, minlength: 1, maxlength: 50 },
     failNotification: { type: String, minlength: 1, maxlength: 50 },

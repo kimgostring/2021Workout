@@ -1,4 +1,3 @@
-const moment = require("moment");
 const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
 const { Video, Folder } = require("../models");
@@ -76,18 +75,9 @@ videoRouter.post(
 
         // duration 결정
         let duration;
-        if (start !== undefined && end !== undefined)
-          duration = moment
-            .duration(end * 1000)
-            .subtract(start * 1000)
-            .asSeconds();
-        else if (start !== undefined)
-          duration = moment
-            .duration(endSec * 1000)
-            .subtract(start * 1000)
-            .asSeconds();
-        else if (end !== undefined)
-          duration = moment.duration(end * 1000).asSeconds();
+        if (start !== undefined && end !== undefined) duration = end - start;
+        else if (start !== undefined) duration = endSec - start;
+        else if (end !== undefined) duration = end;
         else duration = video.originDuration;
 
         // title 확인, 생략 가능
@@ -319,18 +309,9 @@ videoRouter.patch("/:videoId", async (req, res) => {
 
     // duration 결정
     let duration;
-    if (start !== undefined && end !== undefined)
-      duration = moment
-        .duration(end * 1000)
-        .subtract(start * 1000)
-        .asSeconds();
-    else if (start !== undefined)
-      duration = moment
-        .duration(endSec * 1000)
-        .subtract(start * 1000)
-        .asSeconds();
-    else if (end !== undefined)
-      duration = moment.duration(end * 1000).asSeconds();
+    if (start !== undefined && end !== undefined) duration = end - start;
+    else if (start !== undefined) duration = endSec - start;
+    else if (end !== undefined) duration = end;
     else duration = video.duration;
 
     // start와 end가 초기화될 경우, 필드 삭제

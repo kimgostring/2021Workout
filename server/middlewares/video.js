@@ -32,61 +32,30 @@ const mkVideoFromVideoId = async (req, res, next) => {
   }
 };
 
-const mkVideosFromVideoSetId = async (req, res, next) => {
+const mkVideosFromFolderId = async (req, res, next) => {
   try {
     // 미들웨어 사용된 곳에 따라 다른 컬렉션의 문서 id 주게 됨,
     // 변수명에 따라 각 문서와 관련된 Video 문서들 전부 찾아 리턴
-    const { folderId, playlistId } = req.params;
-    if (!folderId && !playlistId)
-      return res.status(400).send({ err: "at least one set id is required. " });
-
-    if (folderId && !isValidObjectId(folderId))
+    const { folderId } = req.params;
+    if (!folderId || !isValidObjectId(folderId))
       return res.status(400).send({ err: "invaild folder id. " });
-    if (playlistId && !isValidObjectId(playlistId))
-      return res.status(400).send({ err: "invaild playlist id. " });
 
-    let videoSetName = null,
-      videos = [],
-      originVideos = [];
+    const originFolder = await Folder.findOne({ _id: folderId });
+    if (!originFolder)
+      return res.status(400).send({ err: "folder does not exist. " });
 
-    if (folderId) {
-      const folder = await Folder.findOne({ _id: folderId });
-      if (!folder)
-        return res.status(400).send({ err: "folder does not exist. " });
-      req.folder = folder;
-      videoSetName = folder.name;
-
-      originVideos = await Promise.all(
-        folder.videos.map((video) => {
-          return Video.findOne({ _id: video._id, user: folder.user });
-        })
-      );
-    } else if (playlistId) {
-      const playlist = await Playlist.findOne({ _id: playlistId });
-      if (!playlist)
-        return res.status(400).send({ err: "playlist does not exist. " });
-      req.playlist = playlist;
-      videoSetName = playlist.name;
-
-      originVideos = await Promise.all(
-        playlist.videos.map((video) => {
-          return Video.findOne({ _id: video._id, user: playlist.user });
-        })
-      );
-      originVideos.forEach((video, index) => {
-        if (playlist.videos[index].start !== undefined)
-          video.start = playlist.videos[index].start;
-        if (playlist.videos[index].end !== undefined)
-          video.end = playlist.videos[index].end;
-      });
-    }
+    const originVideos = await Promise.all(
+      originFolder.videos.map((video) => {
+        return Video.findOne({ _id: video._id, user: originFolder.user });
+      })
+    );
 
     // 각 video가 제대로 불려와졌는지 확인
     if (!originVideos.every((originVideo) => isValidObjectId(originVideo._id)))
       return res.status(400).send({ err: "invalid video. " });
 
     // 불러온 video를 토대로 새 video 생성
-    videos = originVideos.map((originVideo) => {
+    const videos = originVideos.map((originVideo) => {
       const video = new Video({
         youtubeId: originVideo.youtubeId,
         title: originVideo.title,
@@ -101,9 +70,77 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
       return video;
     });
 
+    req.originFolder = originFolder;
     req.videos = videos;
-    req.videoSetName = videoSetName;
     req.originVideos = originVideos;
+    next();
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+};
+
+const mkVideosFromPlaylistId = async (req, res, next) => {
+  try {
+    // 미들웨어 사용된 곳에 따라 다른 컬렉션의 문서 id 주게 됨,
+    // 변수명에 따라 각 문서와 관련된 Video 문서들 전부 찾아 리턴
+    const { playlistId } = req.params;
+    if (!playlistId || !isValidObjectId(playlistId))
+      return res.status(400).send({ err: "invaild playlist id. " });
+
+    const originPlaylist = await Playlist.findOne({ _id: playlistId });
+    if (!originPlaylist)
+      return res.status(400).send({ err: "playlist does not exist. " });
+
+    const originDays = [];
+    let i, originDay;
+    // forEach의 경우 바깥에서 await가 제대로 동작하지 않으므로 대신 for 사용
+    for (i = 0; i < originPlaylist.days.length; i++) {
+      originDay = await Promise.all(
+        originPlaylist.days[i].map((video) => {
+          return Video.findOne({ _id: video._id, user: originPlaylist.user });
+        })
+      );
+      originDays.push(originDay);
+    }
+
+    originDays.forEach((originDay, dayIndex) => {
+      originDay.forEach((video, videoIndex) => {
+        if (originPlaylist.days[dayIndex][videoIndex].start !== undefined)
+          video.start = originPlaylist.days[dayIndex][videoIndex].start;
+        if (originPlaylist.days[dayIndex][videoIndex].end !== undefined)
+          video.end = originPlaylist.days[dayIndex][videoIndex].end;
+      });
+    });
+
+    // 각 video가 제대로 불려와졌는지 확인
+    if (
+      !originDays.every((originDay) =>
+        originDay.every((originVideo) => isValidObjectId(originVideo._id))
+      )
+    )
+      return res.status(400).send({ err: "invalid video. " });
+
+    // 불러온 video를 토대로 새 video 생성
+    const days = originDays.map((originDay) => {
+      return originDay.map((originVideo) => {
+        const video = new Video({
+          youtubeId: originVideo.youtubeId,
+          title: originVideo.title,
+          tags: originVideo.tags,
+          originDuration: originVideo.originDuration,
+          duration: originVideo.duration,
+          thumbnail: originVideo.thumbnail,
+        });
+        if (originVideo.start !== undefined) video.start = originVideo.start;
+        if (originVideo.end !== undefined) video.end = originVideo.end;
+
+        return video;
+      });
+    });
+
+    req.originPlaylist = originPlaylist;
+    req.days = days;
+    req.originDays = originDays;
     next();
   } catch (err) {
     return res.status(400).send({ err: err.message });
@@ -113,7 +150,7 @@ const mkVideosFromVideoSetId = async (req, res, next) => {
 // 이미 저장된 비디오인지 확인하는 미들웨어
 const checkExistedVideos = async (req, res, next) => {
   try {
-    let { video, videos, playlist } = req;
+    let { video, videos, days } = req;
     const { userId } = req.body;
     if (!userId || !isValidObjectId(userId))
       return res.status(400).send({ err: "invaild user id." });
@@ -128,6 +165,7 @@ const checkExistedVideos = async (req, res, next) => {
         video = userVideo;
       }
     }
+
     if (Array.isArray(videos) && videos.length !== 0) {
       const userVideos = await Promise.all(
         videos.map((video) => {
@@ -138,20 +176,43 @@ const checkExistedVideos = async (req, res, next) => {
       userVideos.forEach((userVideo, index) => {
         if (userVideo) {
           userVideo.isExisted = true;
-          if (playlist) {
-            // playlist에 영상 추가하는 작업일 경우, 플리의 start, end 정보 따라야 함
-            if (videos[index].start !== undefined)
-              userVideo.start = videos[index].start;
-            if (videos[index].end !== undefined)
-              userVideo.end = videos[index].end;
-          }
           videos[index] = userVideo;
         }
       });
     }
 
+    if (Array.isArray(days) && days.length !== 0) {
+      const userDays = [];
+      let i, userDay;
+      for (i = 0; i < days.length; i++) {
+        userDay = await Promise.all(
+          days[i].map((video) => {
+            return Video.findOne({ user: userId, youtubeId: video.youtubeId });
+          })
+        );
+        userDays.push(userDay);
+      }
+      // DB에서 video 불려와진 경우, 해당 인덱스에 끼워넣기
+      userDays.forEach((userDay, dayIndex) => {
+        userDay.forEach((userVideo, videoIndex) => {
+          if (userVideo) {
+            userVideo.isExisted = true;
+
+            // 원본 playlist에서 설정된 start, end 있는 경우 적용
+            if (days[dayIndex][videoIndex].start !== undefined)
+              userVideo.start = days[dayIndex][videoIndex].start;
+            if (days[dayIndex][videoIndex].end !== undefined)
+              userVideo.end = days[dayIndex][videoIndex].end;
+
+            days[dayIndex][videoIndex] = userVideo;
+          }
+        });
+      });
+    }
+
     req.video = video;
     req.videos = videos;
+    req.days = days;
     next();
   } catch (err) {
     return res.status(400).send({ err: err.message });
@@ -160,6 +221,7 @@ const checkExistedVideos = async (req, res, next) => {
 
 module.exports = {
   mkVideoFromVideoId,
-  mkVideosFromVideoSetId,
+  mkVideosFromFolderId,
+  mkVideosFromPlaylistId,
   checkExistedVideos,
 };

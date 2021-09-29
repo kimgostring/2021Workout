@@ -4,7 +4,7 @@ const { Video, Folder, User } = require("../models");
 const { folderVideoRouter } = require("./folder");
 const {
   mkVideosFromYoutubePlaylistId,
-  mkVideosFromVideoSetId,
+  mkVideosFromFolderId,
   checkExistedVideos,
 } = require("../middlewares");
 
@@ -348,11 +348,11 @@ folderRouter.post("/:folderId/unbookmark", async (req, res) => {
 // 폴더 복사하기, controller resource
 folderRouter.post(
   "/:folderId/copy",
-  mkVideosFromVideoSetId,
+  mkVideosFromFolderId,
   checkExistedVideos,
   async (req, res) => {
     try {
-      const { videos, folder: originFolder } = req;
+      const { videos, originFolder } = req;
       const { folderId: originFolderId } = req.params;
       const {
         userId,

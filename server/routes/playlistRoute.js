@@ -1,10 +1,9 @@
-const moment = require("moment");
 const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
 const { Playlist, Folder, Video, User } = require("../models");
 const {
   checkExistedVideos,
-  mkVideosFromVideoSetId,
+  mkVideosFromPlaylistId,
   mkVideosFromYoutubePlaylistId,
 } = require("../middlewares");
 
@@ -17,7 +16,7 @@ playlistRouter.post(
   checkExistedVideos,
   async (req, res) => {
     try {
-      const { youtubePlaylistName } = req;
+      const { youtubePlaylistName, videos } = req;
       const {
         userId,
         folderId,
@@ -27,13 +26,6 @@ playlistRouter.post(
         successNotification,
         failNotification,
       } = req.body;
-
-      let videos;
-      if (youtubePlaylistName) videos = req.videos;
-      else {
-        videos = req.body.videos;
-        videos.forEach((video) => (video.isExisted = true));
-      }
 
       // id 확인
       if (!userId || !isValidObjectId(userId))
@@ -58,6 +50,7 @@ playlistRouter.post(
 
       const [user, folder] = await promises;
       if (!user) return res.status(400).send({ err: "user does not exist. " });
+      // youtubePlaylist로 추가할 경우, 새 Video 저장할 Folder 필요
       if (youtubePlaylistName && !folder)
         return res
           .status(400)
@@ -95,57 +88,97 @@ playlistRouter.post(
           .status(400)
           .send({ err: "notification must be a string within 50 chars. " });
 
-      // videos 확인
-      if (!Array.isArray(videos) || videos.length <= 0)
-        return res
-          .status(400)
-          .send({ err: "at least one video is required. " });
+      // days 확인
+      let days,
+        willInsertedVideos = [];
+      if (youtubePlaylistName) {
+        // youtubePlaylistId로 추가
+        days = [videos];
+
+        // videos 분류, 새 videos에 정보 추가
+        days[0].forEach((video) => {
+          if (!video.isExisted) {
+            video.folder._id = folder._id;
+            video.folder.name = folder.name;
+            video.folder.publicLevel = folder.publicLevel;
+            video.user = userId;
+            willInsertedVideos.push(video);
+          }
+        });
+        folder.videos.push(...willInsertedVideos);
+      } else {
+        // User Video를 선택하여 직접 입력
+        days = req.body.days;
+
+        days.forEach((day) => {
+          day.forEach((video) => {
+            video.isExisted = true;
+          });
+        });
+      }
+
+      if (!Array.isArray(days) || days.length <= 0)
+        return res.status(400).send({ err: "at least one day is required. " });
       if (
-        !videos.every(
-          (video) =>
-            isValidObjectId(video._id) &&
-            (!video.isExisted ||
-              (video.isExisted && video.user.toString() === userId)) &&
-            (video.repeatition === undefined ||
-              (video.repeatition !== undefined &&
-                Number.isInteger(video.repeatition) &&
-                video.repeatition >= 1))
+        !days.every(
+          (day) =>
+            Array.isArray(day) &&
+            day.length >= 0 &&
+            day.every(
+              (video) =>
+                isValidObjectId(video._id) &&
+                typeof video.youtubeId === "string" &&
+                video.title &&
+                typeof video.title === "string" &&
+                (!video.isExisted || video.user.toString() === userId) &&
+                Number.isInteger(video.originDuration) &&
+                (video.repeatition === undefined ||
+                  (Number.isInteger(video.repeatition) &&
+                    video.repeatition >= 1)) &&
+                (video.start === undefined ||
+                  (Number.isInteger(video.start) &&
+                    video.start >= 0 &&
+                    video.start <= video.originDuration)) &&
+                (video.end === undefined ||
+                  (Number.isInteger(video.end) &&
+                    video.end >= 0 &&
+                    video.end <= video.originDuration)) &&
+                (video.start === undefined ||
+                  video.end === undefined ||
+                  video.start <= video.end)
+            )
         )
       )
         return res.status(400).send({ err: "invalid video. " });
 
-      // videos 분류, 새 videos에 정보 추가
-      const willInsertedVideos = [];
-      videos.forEach((video) => {
-        if (!video.isExisted) {
-          video.folder._id = folder._id;
-          video.folder.name = folder.name;
-          video.folder.publicLevel = folder.publicLevel;
-          video.user = userId;
-          willInsertedVideos.push(video);
-        }
-      });
-      folder.videos.push(...willInsertedVideos);
-
-      // duration 생성
+      // Playlist duration 및 각 Video의 duration 계산
       let duration = 0;
-      videos.forEach((video) => {
-        duration += moment.duration(video.duration).asSeconds();
+      days.forEach((day) => {
+        day.forEach((video) => {
+          if (video.start !== undefined && video.end !== undefined)
+            video.duration = video.end - video.start;
+          else if (video.start !== undefined)
+            video.duration = video.endSec - video.start;
+          else if (video.end !== undefined) video.duration = video.end;
+          else video.duration = video.originDuration;
+
+          duration += video.duration;
+        });
       });
-      duration = moment.duration(duration * 1000).toISOString();
 
       const playlist = new Playlist({
         ...req.body,
         name: `${name ? `${name}` : `${youtubePlaylistName}`}`,
         user: userId,
         duration,
-        videos,
+        days,
       });
       if (successNotification)
         playlist.successNotification = successNotification;
       if (failNotification) playlist.failNotification = failNotification;
 
-      if (willInsertedVideos.length === 0) await playlist.save();
+      if (!youtubePlaylistName || willInsertedVideos.length === 0)
+        await playlist.save();
       else
         await Promise.all([
           playlist.save(),
@@ -235,7 +268,7 @@ playlistRouter.patch("/:playlistId", async (req, res) => {
       name,
       publicLevel,
       tags,
-      videos,
+      days,
       successNotification,
       failNotification,
     } = req.body;
@@ -248,7 +281,7 @@ playlistRouter.patch("/:playlistId", async (req, res) => {
       !name &&
       publicLevel === undefined &&
       tags === undefined &&
-      videos === undefined &&
+      days === undefined &&
       successNotification === undefined &&
       failNotification === undefined
     )
@@ -286,32 +319,58 @@ playlistRouter.patch("/:playlistId", async (req, res) => {
       return res
         .status(400)
         .send({ err: "notification must be a string within 50 chars. " });
-    // videos 확인
-    if (videos !== undefined) {
-      // videos 확인
-      if (!Array.isArray(videos) || videos.length <= 0)
-        return res
-          .status(400)
-          .send({ err: "at least one video is required. " });
+    // days 확인
+    if (days !== undefined) {
+      if (!Array.isArray(days) || days.length <= 0)
+        return res.status(400).send({ err: "at least one day is required. " });
       if (
-        !videos.every(
-          (video) =>
-            isValidObjectId(video._id) &&
-            video.user.toString() === userId &&
-            (video.repeatition === undefined ||
-              (video.repeatition !== undefined &&
-                Number.isInteger(video.repeatition) &&
-                video.repeatition >= 1))
+        !days.every(
+          (day) =>
+            Array.isArray(day) &&
+            day.length >= 0 &&
+            day.every(
+              (video) =>
+                isValidObjectId(video._id) &&
+                typeof video.youtubeId === "string" &&
+                video.title &&
+                typeof video.title === "string" &&
+                (!video.isExisted || video.user.toString() === userId) &&
+                Number.isInteger(video.originDuration) &&
+                (video.repeatition === undefined ||
+                  (Number.isInteger(video.repeatition) &&
+                    video.repeatition >= 1)) &&
+                (video.start === undefined ||
+                  (Number.isInteger(video.start) &&
+                    video.start >= 0 &&
+                    video.start <= video.originDuration)) &&
+                (video.end === undefined ||
+                  (Number.isInteger(video.end) &&
+                    video.end >= 0 &&
+                    video.end <= video.originDuration)) &&
+                (video.start === undefined ||
+                  video.end === undefined ||
+                  video.start <= video.end)
+            )
         )
       )
         return res.status(400).send({ err: "invalid video. " });
 
-      // duration 생성
+      // Playlist duration 및 각 Video의 duration 계산
       let duration = 0;
-      videos.forEach((video) => {
-        duration += moment.duration(video.duration).asSeconds();
+      days.forEach((day) => {
+        day.forEach((video) => {
+          if (video.start !== undefined && video.end !== undefined)
+            video.duration = video.end - video.start;
+          else if (video.start !== undefined)
+            video.duration = video.endSec - video.start;
+          else if (video.end !== undefined) video.duration = video.end;
+          else video.duration = video.originDuration;
+
+          duration += video.duration;
+        });
       });
-      duration = moment.duration(duration * 1000).toISOString();
+
+      req.body.days = days;
       req.body.duration = duration;
     }
 
@@ -397,11 +456,11 @@ playlistRouter.post("/:playlistId/unbookmark", async (req, res) => {
 // 플리 복사하기, controller resource
 playlistRouter.post(
   "/:playlistId/copy",
-  mkVideosFromVideoSetId,
+  mkVideosFromPlaylistId,
   checkExistedVideos,
   async (req, res) => {
     try {
-      const { videos, playlist: originPlaylist } = req;
+      const { days, originPlaylist } = req;
       const { playlistId: originPlaylistId } = req.params;
       const { userId, folderId, publicLevel = 1 } = req.body;
       if (!originPlaylist)
@@ -459,16 +518,21 @@ playlistRouter.post(
 
       // 영상에 정보 추가
       const willInsertedVideos = [];
-      videos.forEach((video) => {
-        video.folder._id = folder._id;
-        video.folder.name = folder.name;
-        video.folder.publicLevel = folder.publicLevel;
-        video.user = userId;
-        if (!video.isExisted) willInsertedVideos.push(video);
+      days.forEach((day) => {
+        day.forEach((video) => {
+          if (!video.isExisted) {
+            video.folder._id = folder._id;
+            video.folder.name = folder.name;
+            video.folder.publicLevel = folder.publicLevel;
+            video.user = userId;
+
+            willInsertedVideos.push(video);
+          }
+        });
       });
 
       // 폴더와 새 플리에 영상들 넣어주기
-      newPlaylist.videos = videos;
+      newPlaylist.days = days;
       folder.videos.push(...willInsertedVideos);
 
       const [countedOriginPlaylist] = await Promise.all([
