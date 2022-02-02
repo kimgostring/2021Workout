@@ -4,7 +4,6 @@ const cookieParser = require("cookie-parser");
 const {
   userRouter,
   authRouter,
-  videoRouter,
   folderRouter,
   playlistRouter,
 } = require("./routes");
@@ -30,7 +29,6 @@ const server = async () => {
     // 라우터 추가
     app.use("/users", userRouter);
     app.use("/auth", authRouter);
-    app.use("/videos", videoRouter);
     app.use("/folders", folderRouter);
     app.use("/playlists", playlistRouter);
 

@@ -1,7 +1,7 @@
 const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
 const { Video, Folder, User } = require("../models");
-const { folderVideoRouter } = require("./folder");
+const { videoRouter } = require("./folder");
 const {
   mkVideosFromYoutubePlaylistId,
   mkVideosFromFolderId,
@@ -10,7 +10,7 @@ const {
 
 const folderRouter = Router();
 
-folderRouter.use("/:folderId/videos", folderVideoRouter);
+folderRouter.use("/:folderId/videos", videoRouter);
 
 // folder 생성
 folderRouter.post(

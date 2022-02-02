@@ -15,12 +15,8 @@ const mkVideoFromYoutubeVideoId = async (req, res, next) => {
           `${YOUTUBE_URI}/videos?key=${YOUTUBE_KEY}&part=snippet,contentDetails&id=${youtubeVideoId}`
         )
         .then((res) => res.data.items[0]);
-      if (!videoFromYoutube)
-        return res.status(400).send({ err: "invalid youtube video id. " });
 
       // title, duration, thumbnail
-      if (!videoFromYoutube)
-        return res.status(400).send({ err: "invalid youtube video id. " });
       const { title } = videoFromYoutube.snippet;
       const originDuration = moment
         .duration(videoFromYoutube.contentDetails.duration)
@@ -35,10 +31,14 @@ const mkVideoFromYoutubeVideoId = async (req, res, next) => {
         thumbnail,
       });
     }
+
     req.video = video;
+
     next();
   } catch (err) {
-    return res.status(400).send({ err: err.message });
+    return res.status(404).send({
+      err: "invalid youtube id, or private youtube data, or already deleted data. ",
+    });
   }
 };
 
@@ -46,9 +46,9 @@ const mkVideoFromYoutubeVideoId = async (req, res, next) => {
 const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
   try {
     const { YOUTUBE_URI, YOUTUBE_KEY } = process.env;
-    const { youtubePlaylistId } = req.body;
+    let { youtubePlaylistId } = req.body;
+    if (!youtubePlaylistId) ({ youtubePlaylistId } = req);
 
-    let youtubePlaylistName = null;
     let videos = [];
     if (youtubePlaylistId) {
       // 1. playlistId로부터 playlistInfo, videos 불러오기
@@ -64,13 +64,10 @@ const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
           )
           .then((res) => res.data.items[0]),
       ]);
-      // playlist 존재 확인
-      if (!playlistFromYoutube)
-        return res.status(400).send({ err: "invalid youtube playlist id. " });
 
       // 2. 필요한 정보만 얻어오기
       // 플리 이름 빼오기
-      youtubePlaylistName = playlistFromYoutube.snippet.title;
+      req.youtubePlaylistTitle = playlistFromYoutube.snippet.title;
       // playlist의 items에 저장된 video 리스트에서 필요한 것만 빼내 저장
       const videoInfos = videosFromYoutube.map((videoFromYoutube) => {
         const { videoId, start, end } = videoFromYoutube.contentDetails;
@@ -107,11 +104,14 @@ const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
       // 4. Video 객체 생성
       videos = videoInfos.map((videoInfo) => new Video(videoInfo));
     }
-    req.youtubePlaylistName = youtubePlaylistName;
+
     req.videos = videos;
+
     next();
   } catch (err) {
-    return res.status(400).send({ err: err.message });
+    return res.status(404).send({
+      err: "invalid youtube id, or private youtube data, or already deleted data. ",
+    });
   }
 };
 

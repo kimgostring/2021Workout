@@ -4,20 +4,18 @@ const videoSchema = new Schema(
   {
     folder: {
       _id: { type: Types.ObjectId, required: true, ref: "folder", index: true },
-      name: { type: String, required: true },
+      title: { type: String, required: true },
       publicLevel: {
         type: Number,
         required: true,
         min: 0,
         max: 3,
-        default: 1,
       },
     },
     user: { type: Types.ObjectId, required: true, ref: "user", index: true },
     title: { type: String, required: true, index: true, minlength: 1 },
     youtubeId: { type: String, required: true },
     isBookmarked: { type: Boolean, required: true, default: false },
-    sharedCount: { type: Number, default: 0 },
     tags: [
       {
         type: String,
@@ -29,10 +27,9 @@ const videoSchema = new Schema(
     originDuration: { type: Number, required: true },
     duration: { type: Number, required: true },
     playInfo: {
-      failCount: { type: Number, default: 0 },
+      playedCount: { type: Number, default: 0 },
       successCount: { type: Number, default: 0 },
       avgStar: { type: Number, min: 0, max: 5 },
-      avgPlaytime: String,
     },
     thumbnail: { type: String, required: true },
   },
