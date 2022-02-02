@@ -434,4 +434,45 @@ folderRouter.post("/:folderId/setAsDefault", async (req, res) => {
   }
 });
 
+// 영상 전체 숨김
+folderRouter.post("/:folderId/hideAllVideos", async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const { userId } = req.body;
+
+    if (!isValidObjectId(folderId))
+      return res.status(400).send({ err: "invalid folder id. " });
+    if (!userId || !isValidObjectId(userId))
+      return res.status(400).send({ err: "invalid user id." });
+
+    const [folder, secretFolder] = await Promise.all([
+      Folder.findOne({ _id: folderId }),
+      Folder.findOne({ user: userId, publicLevel: 0 }),
+    ]);
+    if (!folder)
+      return res.status(404).send({ err: "folder does not exist. " });
+    if (!secretFolder)
+      return res
+        .status(404)
+        .send({ err: "user or secret folder does not exist. " });
+    if (folder.user.toString() !== userId)
+      return res
+        .status(403)
+        .send({ err: "this user is not the owner of this folder. " });
+
+    secretFolder.videos = [...secretFolder.videos, ...folder.videos];
+    folder.videos = [];
+
+    await Promise.all([
+      Video.updateMany({ "folder._id": folderId }, { folder: secretFolder }),
+      folder.save(),
+      secretFolder.save(),
+    ]);
+
+    res.send({ success: true, folder });
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+});
+
 module.exports = { folderRouter };
