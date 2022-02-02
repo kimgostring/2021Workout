@@ -19,7 +19,7 @@ const userSchema = new Schema(
       maxlength: 15,
     },
     age: { type: Number, min: 0 },
-    sex: { type: Number, min: 1, max: 2 }, // 1 - 남성, 2 - 여성
+    sex: { type: Number, min: 1, max: 3 }, // 1 - 남성, 2 - 여성, 3 - 기타
     introduction: { type: String, maxlength: 50 },
     token: String,
     tokenExp: Date,
@@ -28,6 +28,7 @@ const userSchema = new Schema(
 );
 
 // 비밀번호 암호화
+// updateOne, findOneAndUpdate에서는 적용되지 않음
 userSchema.pre("save", async function (next) {
   const saltRounds = 10;
   const user = this;
