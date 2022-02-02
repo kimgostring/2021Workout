@@ -509,4 +509,103 @@ videoRouter.post(
   }
 );
 
+// video 숨김, controller resource
+videoRouter.post("/:videoId/hide", async (req, res) => {
+  try {
+    const { videoId, folderId } = req.params;
+    const { userId } = req.body;
+
+    if (!isValidObjectId(videoId))
+      return res.status(400).send({ err: "invaild video id. " });
+    if (!isValidObjectId(folderId))
+      return res.status(400).send({ err: "invaild folder id. " });
+    if (!userId || !isValidObjectId(userId))
+      return res.status(400).send({ err: "invaild user id. " });
+
+    let [video, folder, secretFolder] = await Promise.all([
+      Video.findOne({ _id: videoId }),
+      Folder.findOne({ _id: folderId }),
+      Folder.findOne({ user: userId, publicLevel: 0 }),
+    ]);
+
+    if (!video) return res.status(404).send({ err: "video does not exist. " });
+    if (!folder)
+      return res.status(404).send({ err: "folder does not exist. " });
+    if (!secretFolder)
+      return res
+        .status(404)
+        .send({ err: "secret folder or user does not exist. " });
+
+    if (video.folder._id.toString() !== folderId)
+      return res
+        .status(403)
+        .send({ err: "this video is not in this folder. " });
+    if (video.user.toString() !== userId)
+      return res
+        .status(403)
+        .send({ err: "this user is not the owner of this video. " });
+    if (secretFolder._id.toString() === folderId)
+      return res
+        .status(403)
+        .send({ err: "this video is already in secret folder. " });
+
+    video.folder = secretFolder;
+    secretFolder.videos[secretFolder.videos.length] = video;
+
+    [folder] = await Promise.all([
+      Folder.findOneAndUpdate(
+        { _id: folderId },
+        { $pull: { videos: { _id: videoId } } },
+        { new: true }
+      ),
+      video.save(),
+      secretFolder.save(),
+    ]);
+
+    res.send({ success: true, video, folder });
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+});
+
+// video 기록 삭제, controller resource
+videoRouter.post("/:videoId/initPlayInfo", async (req, res) => {
+  try {
+    const { videoId, folderId } = req.params;
+
+    if (!isValidObjectId(videoId))
+      return res.status(400).send({ err: "invaild video id. " });
+    if (!isValidObjectId(folderId))
+      return res.status(400).send({ err: "invaild folder id. " });
+
+    let [video, folder] = await Promise.all([
+      Video.findOne({ _id: videoId }),
+      Folder.findOne({ _id: folderId }),
+    ]);
+
+    if (!video) return res.status(404).send({ err: "video does not exist. " });
+    if (!folder)
+      return res.status(404).send({ err: "folder does not exist. " });
+
+    if (video.folder._id.toString() !== folderId)
+      return res
+        .status(403)
+        .send({ err: "this video is not in this folder. " });
+
+    video = await Video.findOneAndUpdate(
+      { _id: videoId },
+      {
+        "playInfo.successCount": 0,
+        "playInfo.playedCount": 0,
+        $unset: { "playInfo.avgStar": "" },
+      },
+      { new: true }
+    );
+
+    res.send({ success: true, video });
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+});
+
 module.exports = { videoRouter };
