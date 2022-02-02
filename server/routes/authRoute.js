@@ -23,11 +23,11 @@ authRouter.post("/login", async (req, res) => {
     if (typeof email !== "string" || typeof password !== "string")
       return res
         .status(400)
-        .send({ err: "both email and string is required. " });
+        .send({ err: "both email and string are required. " });
 
     const user = await User.findOne({ email });
     // email 회원가입 여부 확인
-    if (!user) return res.status(400).send({ err: "email is invalid. " });
+    if (!user) return res.status(400).send({ err: "invalid email. " });
     // 비밀번호 확인
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).send({ err: "password is wrong. " });
