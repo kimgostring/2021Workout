@@ -56,6 +56,52 @@ const mkVideosFromFolderId = async (req, res, next) => {
   }
 };
 
+const checkFolderValidation = (req, res, next) => {
+  try {
+    const { folder, youtubePlaylistTitle } = req;
+    const { youtubePlaylistId, title, publicLevel, tags } = req.body;
+
+    if (youtubePlaylistTitle !== undefined) {
+      folder.youtubeId = youtubePlaylistId;
+
+      // 새 폴더일 때, youtubePlaylistTitle이 제목 대체 가능
+      if (!folder.title) folder.title = youtubePlaylistTitle;
+    }
+
+    // title 확인
+    if (title !== undefined) {
+      if (typeof title !== "string" || title.length <= 0)
+        return res.status(400).send({ err: "title must be a string. " });
+      folder.title = title;
+    }
+
+    // publicLevel 확인
+    if (publicLevel !== undefined) {
+      if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
+        return res.status(400).send({ err: "publicLevel must be 1, 2 or 3. " });
+      folder.publicLevel = publicLevel;
+    }
+
+    // tags 확인
+    if (tags !== undefined) {
+      if (!Array.isArray(tags))
+        return res.status(400).send({ err: "tags must be an array. " });
+      if (!tags.every((tag) => typeof tag === "string" && tag.length <= 10))
+        return res
+          .status(400)
+          .send({ err: "each tag must be a string within 10 chars. " });
+      folder.tags = tags;
+    }
+
+    req.folder = folder;
+
+    next();
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+};
+
 module.exports = {
   mkVideosFromFolderId,
+  checkFolderValidation,
 };
