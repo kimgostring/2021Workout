@@ -158,7 +158,7 @@ const checkVideoValidation = (req, res, next) => {
 
 // 내부 구현 함수
 // saveVideo, saveVideos 미들웨어에서 사용됨
-const classifyVideo = ({
+const _classifyVideo = ({
   video,
   folder,
   promises,
@@ -215,7 +215,7 @@ const mkPromisesThatSaveVideo = (req, res, next) => {
       isNew,
       isMoved;
 
-    ({ promises, isPushed, isNew, isMoved } = classifyVideo({
+    ({ promises, isPushed, isNew, isMoved } = _classifyVideo({
       video,
       folder,
       promises,
@@ -261,7 +261,7 @@ const mkPromisesThatSaveVideos = (req, res, next) => {
       movedVideos = []; // 기존 다른 folder에 존재하던 video 중 새 folder로 옮겨올 video
 
     videos.forEach((video) => {
-      ({ promises, isPushed, isNew, isMoved } = classifyVideo({
+      ({ promises, isPushed, isNew, isMoved } = _classifyVideo({
         video,
         folder,
         promises,

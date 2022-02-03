@@ -64,7 +64,7 @@ playlistRouter.get("/", async (req, res) => {
 // playlist 생성
 playlistRouter.post(
   "/",
-  async (req, res, next) => {
+  (req, res, next) => {
     try {
       const { youtubePlaylistIds, title } = req.body;
 
@@ -195,10 +195,21 @@ playlistRouter.patch(
       if (folderId && !isValidObjectId(folderId))
         return res.status(400).send({ err: "invaild folder id. " });
 
-      const [playlist, folder] = await Promise.all([
-        Playlist.findOne({ _id: playlistId }),
-        Folder.findOne({ _id: folderId }),
-      ]);
+      let promises = null;
+      if (folderId)
+        promises = Promise.all([
+          Playlist.findOne({ _id: playlistId }),
+          Folder.findOne({ _id: folderId }),
+          promises,
+        ]);
+      else
+        promises = Promise.all([
+          Playlist.findOne({ _id: playlistId }),
+          promises,
+        ]);
+
+      const [playlist, folder] = await promises;
+
       if (!playlist)
         return res.status(404).send({ err: "playlist does not exist. " });
       if (folderId && isValidObjectId(folderId) && !folder)

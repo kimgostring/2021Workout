@@ -122,7 +122,7 @@ videoRouter.post(
       // 다음 라우트로 넘어감
       else
         return res.status(400).send({
-          err: "youtubeVideoId or youtubePlaylistId must be required. ",
+          err: "youtube video id or youtube playlist id must be required. ",
         });
     } catch (err) {
       return res.status(400).send({ err: err.message });
