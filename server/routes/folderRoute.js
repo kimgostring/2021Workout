@@ -135,7 +135,6 @@ folderRouter.get("/:folderId", async (req, res) => {
 // folder 수정
 folderRouter.patch(
   "/:folderId",
-  mkVideosFromYoutubePlaylistId,
   async (req, res, next) => {
     try {
       const { folderId } = req.params;

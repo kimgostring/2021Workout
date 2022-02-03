@@ -42,14 +42,14 @@ const mkVideoFromYoutubeVideoId = async (req, res, next) => {
   }
 };
 
-// playlistId로부터 정보 얻어와 video 문서 배열 만들어 제공해주는 미들웨어
-const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
+// 내부 구현 함수
+// 미들웨어에서 호출에서 사용하기 위함
+const _mkVideosFromYoutubePlaylistId = async (youtubePlaylistId) => {
   try {
     const { YOUTUBE_URI, YOUTUBE_KEY } = process.env;
-    let { youtubePlaylistId } = req.body;
-    if (!youtubePlaylistId) ({ youtubePlaylistId } = req);
 
-    let videos = [];
+    let videos = [],
+      youtubePlaylistTitle;
     if (youtubePlaylistId) {
       // 1. playlistId로부터 playlistInfo, videos 불러오기
       const [videosFromYoutube, playlistFromYoutube] = await Promise.all([
@@ -67,7 +67,8 @@ const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
 
       // 2. 필요한 정보만 얻어오기
       // 플리 이름 빼오기
-      req.youtubePlaylistTitle = playlistFromYoutube.snippet.title;
+      youtubePlaylistTitle = playlistFromYoutube.snippet.title;
+
       // playlist의 items에 저장된 video 리스트에서 필요한 것만 빼내 저장
       const videoInfos = videosFromYoutube.map((videoFromYoutube) => {
         const { videoId, start, end } = videoFromYoutube.contentDetails;
@@ -105,6 +106,53 @@ const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
       videos = videoInfos.map((videoInfo) => new Video(videoInfo));
     }
 
+    return { videos, youtubePlaylistTitle };
+  } catch (err) {
+    return res.status(404).send({
+      err: "invalid youtube id, or private youtube data, or already deleted data. ",
+    });
+  }
+};
+
+// playlistId로부터 정보 얻어와 video 문서 배열 만들어 제공해주는 미들웨어
+const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
+  try {
+    let { youtubePlaylistId } = req.body;
+    if (!youtubePlaylistId) ({ youtubePlaylistId } = req);
+
+    const { videos, youtubePlaylistTitle } =
+      await _mkVideosFromYoutubePlaylistId(youtubePlaylistId);
+
+    req.videos = videos;
+    req.youtubePlaylistTitle = youtubePlaylistTitle;
+
+    next();
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+};
+
+const mkRoutinesFromYoutubePlaylistIds = async (req, res, next) => {
+  try {
+    let { youtubePlaylistIds } = req.body;
+    if (!youtubePlaylistIds) ({ youtubePlaylistIds } = req);
+
+    let routines = [],
+      videos = [];
+
+    if (Array.isArray(youtubePlaylistIds) && youtubePlaylistIds.length > 0) {
+      routines = await Promise.all(
+        youtubePlaylistIds.map((id) => _mkVideosFromYoutubePlaylistId(id))
+      );
+
+      routines = routines.map((routine, ind) => {
+        videos = [...videos, ...routine.videos];
+
+        return { youtubeId: youtubePlaylistIds[ind], ...routine };
+      });
+    }
+
+    req.routines = routines;
     req.videos = videos;
 
     next();
@@ -118,4 +166,5 @@ const mkVideosFromYoutubePlaylistId = async (req, res, next) => {
 module.exports = {
   mkVideoFromYoutubeVideoId,
   mkVideosFromYoutubePlaylistId,
+  mkRoutinesFromYoutubePlaylistIds,
 };

@@ -61,11 +61,16 @@ const checkFolderValidation = (req, res, next) => {
     const { folder, youtubePlaylistTitle } = req;
     const { youtubePlaylistId, title, publicLevel, tags } = req.body;
 
-    if (youtubePlaylistTitle !== undefined) {
-      folder.youtubeId = youtubePlaylistId;
+    // 새 폴더일 때, youtubePlaylistTitle이 제목 대체 가능
+    if (youtubePlaylistTitle !== undefined && !folder.title)
+      folder.title = youtubePlaylistTitle;
 
-      // 새 폴더일 때, youtubePlaylistTitle이 제목 대체 가능
-      if (!folder.title) folder.title = youtubePlaylistTitle;
+    if (youtubePlaylistId !== undefined) {
+      if (typeof youtubePlaylistId !== "string" || title.length <= 0)
+        return res
+          .status(400)
+          .send({ err: "youtube playlist id must be a string. " });
+      folder.youtubeId = youtubePlaylistId;
     }
 
     // title 확인
@@ -101,7 +106,46 @@ const checkFolderValidation = (req, res, next) => {
   }
 };
 
+const mkOrFindFolder = async (req, res, next) => {
+  try {
+    const { userId, folderId, title, willMkNewFolder = true } = req.body;
+
+    let folder = null;
+    if (willMkNewFolder) {
+      // 새 폴더 생성
+
+      if (typeof title !== "string" || title.length <= 0)
+        return res.status(400).send({ err: "title must be a string. " });
+
+      folder = new Folder({ user: userId, title });
+    } else {
+      // 기존 폴더에 저장
+      // folder id 입력받은 경우 유효한 id여야 함
+      if (folderId !== undefined && !isValidObjectId(folderId))
+        return res.status(400).send({ err: "invalid folder id. " });
+
+      if (folderId) folder = await Folder.findOne({ _id: folderId });
+      // 폴더 id 없는 경우, 기본 폴더에 저장
+      else folder = await Folder.findOne({ user: userId, isDefault: true });
+
+      if (!folder)
+        return res.status(404).send({ err: "folder does not exist. " });
+
+      if (folder.user.toString() !== userId)
+        return res
+          .status(403)
+          .send({ err: "this user is not the owner of this folder. " });
+    }
+    req.folder = folder;
+
+    next();
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+};
+
 module.exports = {
   mkVideosFromFolderId,
   checkFolderValidation,
+  mkOrFindFolder,
 };

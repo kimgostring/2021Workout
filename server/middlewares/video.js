@@ -272,17 +272,21 @@ const mkPromisesThatSaveVideos = (req, res, next) => {
       if (isNew) newVideos[newVideos.length] = video;
       if (isMoved) movedVideos[movedVideos.length] = video;
     });
-    folder.videos = [...folder.videos, ...pushedVideos];
 
-    promises = Promise.all([
-      promises, // 원래 folder에서 기존 video pull하는 작업들의 모음
-      folder.save(),
-      Video.insertMany(newVideos),
-      Video.updateMany(
-        { _id: { $in: movedVideos.map((video) => video._id) } },
-        { folder }
-      ),
-    ]);
+    // pushedVideos에 해당하는 영상 없는 경우, 굳이 해당 폴더 생성/저장할 필요 없음
+    if (pushedVideos.length > 0) {
+      folder.videos = [...folder.videos, ...pushedVideos];
+
+      promises = Promise.all([
+        promises, // 원래 folder에서 기존 video pull하는 작업들의 모음
+        folder.save(),
+        Video.insertMany(newVideos),
+        Video.updateMany(
+          { _id: { $in: movedVideos.map((video) => video._id) } },
+          { folder }
+        ),
+      ]);
+    }
 
     req.promises = promises;
     req.folder = folder;

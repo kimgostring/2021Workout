@@ -1,206 +1,23 @@
 const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
-const { Playlist, Folder, Video, User } = require("../models");
+const { Playlist, Folder, User } = require("../models");
 const {
+  mkRoutinesFromYoutubePlaylistIds,
+  mkRoutinesFromPlaylistId,
   checkExistedVideos,
-  mkVideosFromPlaylistId,
-  mkVideosFromYoutubePlaylistId,
+  checkPlaylistValidation,
+  mkValidRoutines,
+  mkOrFindFolder,
+  mkPromisesThatSaveVideos,
 } = require("../middlewares");
 
 const playlistRouter = Router();
 
-// playlist 생성
-playlistRouter.post(
-  "/",
-  mkVideosFromYoutubePlaylistId,
-  checkExistedVideos,
-  async (req, res) => {
-    try {
-      const { youtubePlaylistName, videos } = req;
-      const {
-        userId,
-        folderId,
-        publicLevel = 1,
-        tags,
-        name,
-        successNotification,
-        failNotification,
-      } = req.body;
-
-      // id 확인
-      if (!userId || !isValidObjectId(userId))
-        return res.status(400).send({ err: "invalid user id. " });
-      if (folderId && !isValidObjectId(folderId))
-        return res.status(400).send({ err: "invalid folder id. " });
-
-      let promises;
-      promises = Promise.all([User.findOne({ _id: userId })]);
-      if (youtubePlaylistName) {
-        if (folderId)
-          promises = Promise.all([
-            promises,
-            Folder.findOne({ _id: folderId, user: userId }),
-          ]);
-        else
-          promises = Promise.all([
-            promises,
-            Folder.findOne({ user: userId, publicLevel: 0 }),
-          ]);
-      }
-
-      const [user, folder] = await promises;
-      if (!user) return res.status(400).send({ err: "user does not exist. " });
-      // youtubePlaylist로 추가할 경우, 새 Video 저장할 Folder 필요
-      if (youtubePlaylistName && !folder)
-        return res
-          .status(400)
-          .send({ err: "folder does not exist, or not owned by user. " });
-
-      // name 확인
-      if (!(name || youtubePlaylistName))
-        return res
-          .status(400)
-          .send({ err: "name or youtubePlaylistId is required." });
-      // publicLevel 확인
-      if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
-        return res
-          .status(400)
-          .send({ err: "publicLevel must be a 1-3 integer. " });
-      // tags 확인
-      if (tags) {
-        if (!Array.isArray(tags))
-          return res.status(400).send({ err: "tags must be an array." });
-        if (!tags.every((tag) => typeof tag === "string" && tag.length <= 10))
-          return res
-            .status(400)
-            .send({ err: "each tag must be a string within 10 chars. " });
-      }
-      // notification 확인
-      if (
-        (successNotification !== undefined &&
-          (typeof successNotification !== "string" ||
-            successNotification.length > 50)) ||
-        (failNotification !== undefined &&
-          (typeof failNotification !== "string" ||
-            failNotification.length > 50))
-      )
-        return res
-          .status(400)
-          .send({ err: "notification must be a string within 50 chars. " });
-
-      // days 확인
-      let days,
-        willInsertedVideos = [];
-      if (youtubePlaylistName) {
-        // youtubePlaylistId로 추가
-        days = [videos];
-
-        // videos 분류, 새 videos에 정보 추가
-        days[0].forEach((video) => {
-          if (!video.isExisted) {
-            video.folder._id = folder._id;
-            video.folder.name = folder.name;
-            video.folder.publicLevel = folder.publicLevel;
-            video.user = userId;
-            willInsertedVideos.push(video);
-          }
-        });
-        folder.videos.push(...willInsertedVideos);
-      } else {
-        // User Video를 선택하여 직접 입력
-        days = req.body.days;
-
-        days.forEach((day) => {
-          day.forEach((video) => {
-            video.isExisted = true;
-          });
-        });
-      }
-
-      if (!Array.isArray(days) || days.length <= 0)
-        return res.status(400).send({ err: "at least one day is required. " });
-      if (
-        !days.every(
-          (day) =>
-            Array.isArray(day) &&
-            day.length >= 0 &&
-            day.every(
-              (video) =>
-                isValidObjectId(video._id) &&
-                typeof video.youtubeId === "string" &&
-                video.title &&
-                typeof video.title === "string" &&
-                (!video.isExisted || video.user.toString() === userId) &&
-                Number.isInteger(video.originDuration) &&
-                (video.repeatition === undefined ||
-                  (Number.isInteger(video.repeatition) &&
-                    video.repeatition >= 1)) &&
-                (video.start === undefined ||
-                  (Number.isInteger(video.start) &&
-                    video.start >= 0 &&
-                    video.start <= video.originDuration)) &&
-                (video.end === undefined ||
-                  (Number.isInteger(video.end) &&
-                    video.end >= 0 &&
-                    video.end <= video.originDuration)) &&
-                (video.start === undefined ||
-                  video.end === undefined ||
-                  video.start <= video.end)
-            )
-        )
-      )
-        return res.status(400).send({ err: "invalid video. " });
-
-      // Playlist duration 및 각 Video의 duration 계산
-      let duration = 0;
-      days.forEach((day) => {
-        day.forEach((video) => {
-          if (video.start !== undefined && video.end !== undefined)
-            video.duration = video.end - video.start;
-          else if (video.start !== undefined)
-            video.duration = video.endSec - video.start;
-          else if (video.end !== undefined) video.duration = video.end;
-          else video.duration = video.originDuration;
-
-          duration += video.duration;
-        });
-      });
-
-      const playlist = new Playlist({
-        ...req.body,
-        name: `${name ? `${name}` : `${youtubePlaylistName}`}`,
-        user: userId,
-        duration,
-        days,
-      });
-      if (successNotification)
-        playlist.successNotification = successNotification;
-      if (failNotification) playlist.failNotification = failNotification;
-
-      if (!youtubePlaylistName || willInsertedVideos.length === 0)
-        await playlist.save();
-      else
-        await Promise.all([
-          playlist.save(),
-          folder.save(),
-          Video.insertMany(willInsertedVideos),
-        ]);
-
-      res.send({
-        success: true,
-        playlist,
-        insertedVideoNum: willInsertedVideos.length,
-      });
-    } catch (err) {
-      return res.status(400).send({ err: err.message });
-    }
-  }
-);
-
 // 전체 playlist 읽기
 playlistRouter.get("/", async (req, res) => {
   try {
-    let { keyword, sort, strict } = req.query;
+    let { keyword, sort = "ascTitle", strict = "false" } = req.query;
+
     if (keyword && isValidObjectId(keyword))
       // keyword로 id 넘어온 경우
       keyword = { _id: keyword, publicLevel: { $gte: 2 } };
@@ -210,18 +27,16 @@ playlistRouter.get("/", async (req, res) => {
       keyword = { $text: { $search: `"${keyword}"` }, publicLevel: 3 };
     else if (keyword) keyword = { $text: { $search: keyword }, publicLevel: 3 };
     else keyword = { publicLevel: 3 }; // 기본 검색
+
     if (sort)
       switch (sort) {
-        case "asc": // 오름차순
-          sort = { name: 1 };
+        case "ascTitle": // 오름차순
+          sort = { title: 1 };
           break;
-        case "des": // 내림차순
-          sort = { name: -1 };
+        case "desTitle": // 내림차순
+          sort = { title: -1 };
           break;
-        case "desShared": // 공유많은순
-          sort = { sharedCount: -1 };
-          break;
-        case "ascDuration": // 영상길이순
+        case "ascDuration": // 플리길이순
           sort = { duration: 1 };
           break;
         case "desDuration":
@@ -230,28 +45,113 @@ playlistRouter.get("/", async (req, res) => {
         case "latest": // 최신순
           sort = { createdAt: -1 };
           break;
+        case "oldest":
+          sort = { createdAt: 1 };
+          break;
         default:
           return res.status(400).send({ err: "invalid sort. " });
       }
-    else sort = { sharedCount: -1 }; // 기본 정렬
+    else sort = { title: 1 }; // 기본 정렬
 
-    const playlists = await Playlist.find(keyword).sort(sort); // 기본 정렬
+    const playlists = await Playlist.find(keyword).sort(sort);
+
     res.send({ success: true, playlists });
   } catch (err) {
     return res.status(400).send({ err: err.message });
   }
 });
 
+// playlist 생성
+playlistRouter.post(
+  "/",
+  async (req, res, next) => {
+    try {
+      const { youtubePlaylistIds, title } = req.body;
+
+      if (title === undefined)
+        return res.status(400).send({ err: "title is required. " });
+
+      // 기존 보유 영상으로부터 플리 만드는 경우
+      if (!Array.isArray(youtubePlaylistIds)) next("route");
+      // youtubePlaylistId로부터 플리 만드는 경우
+      else next();
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  },
+  mkRoutinesFromYoutubePlaylistIds,
+  checkExistedVideos,
+  mkOrFindFolder,
+  mkPromisesThatSaveVideos,
+  mkValidRoutines,
+  (req, res, next) => {
+    next("route");
+  }
+);
+
+// youtubePlaylistIds로 영상 저장 이후 플리 생성, 확인, 저장
+// 또는 기존 영상으로 플리 생성, 확인, 저장
+playlistRouter.post(
+  "/",
+  async (req, res, next) => {
+    try {
+      const { userId } = req.body;
+
+      // id 확인
+      if (!userId || !isValidObjectId(userId))
+        return res.status(400).send({ err: "invalid user id. " });
+
+      const user = await User.findOne({ _id: userId });
+      if (!user) return res.status(404).send({ err: "user does not exist. " });
+
+      const playlist = new Playlist({ user: userId });
+
+      req.playlist = playlist;
+
+      next();
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  },
+  checkPlaylistValidation,
+  async (req, res) => {
+    try {
+      const { promises = null, playlist, folder, resObj = {} } = req;
+      const { folderId } = req.body;
+
+      if (folderId || resObj.pushedVideoNum > 0) {
+        playlist.folder = folder._id;
+        resObj.folder = folder;
+      }
+
+      await Promise.all([promises, playlist.save()]);
+
+      return res.send({ success: true, playlist, ...resObj });
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  }
+);
+
 // 특정 playlist 읽기
 playlistRouter.get("/:playlistId", async (req, res) => {
   try {
     const { playlistId } = req.params;
+    const { userId } = req.body;
+
     if (!isValidObjectId(playlistId))
       return res.status(400).send({ err: "invalid playlist id. " });
+    if (!userId || !isValidObjectId(userId))
+      return res.status(400).send({ err: "invalid user id. " });
 
     const playlist = await Playlist.findOne({ _id: playlistId });
     if (!playlist)
-      return res.status(400).send({ err: "playlist does not exist. " });
+      return res.status(404).send({ err: "playlist does not exist. " });
+
+    if (playlist.publicLevel === 1 && playlist.user.toString() !== userId)
+      return res
+        .status(403)
+        .send({ err: "this playlist is disabled for reading. " });
 
     res.send({ success: true, playlist });
   } catch (err) {
@@ -260,144 +160,87 @@ playlistRouter.get("/:playlistId", async (req, res) => {
 });
 
 // playlist 수정
-playlistRouter.patch("/:playlistId", async (req, res) => {
-  try {
-    const { playlistId } = req.params;
-    const {
-      userId,
-      name,
-      publicLevel,
-      tags,
-      days,
-      successNotification,
-      failNotification,
-    } = req.body;
+playlistRouter.patch(
+  "/:playlistId",
+  async (req, res, next) => {
+    try {
+      const { playlistId } = req.params;
+      const {
+        folderId,
+        title,
+        publicLevel,
+        tags,
+        routines,
+        successNotification,
+        failNotification,
+      } = req.body;
 
-    if (!isValidObjectId(playlistId))
-      return res.status(400).send({ err: "invaild playlist id. " });
+      if (!isValidObjectId(playlistId))
+        return res.status(400).send({ err: "invaild playlist id. " });
 
-    // 수정사항 없는 경우
-    if (
-      !name &&
-      publicLevel === undefined &&
-      tags === undefined &&
-      days === undefined &&
-      successNotification === undefined &&
-      failNotification === undefined
-    )
-      return res
-        .status(400)
-        .send({ err: "at least one of information must be required. " });
-    // name 확인
-    if (name !== undefined && (typeof name !== "string" || name.length <= 0))
-      return res.status(400).send({ err: "name must be a string. " });
-    // publicLevel 확인
-    if (
-      publicLevel !== undefined &&
-      !(publicLevel === 1 || publicLevel === 2 || publicLevel === 3)
-    )
-      return res
-        .status(400)
-        .send({ err: "publicLevel must be a 1-3 integer. " });
-    // tags 확인
-    if (tags) {
-      if (!Array.isArray(tags))
-        return res.status(400).send({ err: "tags must be an array." });
-      if (!tags.every((tag) => typeof tag === "string" && tag.length <= 10))
+      // 수정사항 없는 경우
+      if (
+        folderId === undefined &&
+        title === undefined &&
+        publicLevel === undefined &&
+        tags === undefined &&
+        routines === undefined &&
+        successNotification === undefined &&
+        failNotification === undefined
+      )
         return res
           .status(400)
-          .send({ err: "each tag must be a string within 10 chars. " });
+          .send({ err: "at least one of information must be required. " });
+
+      if (folderId && !isValidObjectId(folderId))
+        return res.status(400).send({ err: "invaild folder id. " });
+
+      const [playlist, folder] = await Promise.all([
+        Playlist.findOne({ _id: playlistId }),
+        Folder.findOne({ _id: folderId }),
+      ]);
+      if (!playlist)
+        return res.status(404).send({ err: "playlist does not exist. " });
+      if (folderId && isValidObjectId(folderId) && !folder)
+        return res.status(404).send({ err: "folder does not exist. " });
+
+      req.playlist = playlist;
+      req.folder = folder;
+
+      next();
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
     }
-    // notification 확인
-    if (
-      (successNotification !== undefined &&
-        (typeof successNotification !== "string" ||
-          successNotification.length > 50)) ||
-      (failNotification !== undefined &&
-        (typeof failNotification !== "string" || failNotification.length > 50))
-    )
-      return res
-        .status(400)
-        .send({ err: "notification must be a string within 50 chars. " });
-    // days 확인
-    if (days !== undefined) {
-      if (!Array.isArray(days) || days.length <= 0)
-        return res.status(400).send({ err: "at least one day is required. " });
-      if (
-        !days.every(
-          (day) =>
-            Array.isArray(day) &&
-            day.length >= 0 &&
-            day.every(
-              (video) =>
-                isValidObjectId(video._id) &&
-                typeof video.youtubeId === "string" &&
-                video.title &&
-                typeof video.title === "string" &&
-                (!video.isExisted || video.user.toString() === userId) &&
-                Number.isInteger(video.originDuration) &&
-                (video.repeatition === undefined ||
-                  (Number.isInteger(video.repeatition) &&
-                    video.repeatition >= 1)) &&
-                (video.start === undefined ||
-                  (Number.isInteger(video.start) &&
-                    video.start >= 0 &&
-                    video.start <= video.originDuration)) &&
-                (video.end === undefined ||
-                  (Number.isInteger(video.end) &&
-                    video.end >= 0 &&
-                    video.end <= video.originDuration)) &&
-                (video.start === undefined ||
-                  video.end === undefined ||
-                  video.start <= video.end)
-            )
-        )
-      )
-        return res.status(400).send({ err: "invalid video. " });
+  },
+  checkPlaylistValidation,
+  async (req, res) => {
+    try {
+      const { playlist } = req;
 
-      // Playlist duration 및 각 Video의 duration 계산
-      let duration = 0;
-      days.forEach((day) => {
-        day.forEach((video) => {
-          if (video.start !== undefined && video.end !== undefined)
-            video.duration = video.end - video.start;
-          else if (video.start !== undefined)
-            video.duration = video.endSec - video.start;
-          else if (video.end !== undefined) video.duration = video.end;
-          else video.duration = video.originDuration;
+      // *** 미래의 days 함께 변해야 함
+      await playlist.save();
 
-          duration += video.duration;
-        });
-      });
-
-      req.body.days = days;
-      req.body.duration = duration;
+      res.send({ success: true, playlist });
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
     }
-
-    const playlist = await Playlist.findOneAndUpdate(
-      { _id: playlistId },
-      req.body,
-      { new: true }
-    );
-    if (!playlist)
-      return res.status(400).send({ err: "playlist does not exist. " });
-
-    res.send({ success: true, playlist });
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
   }
-});
+);
 
 // playlist 삭제
 playlistRouter.delete("/:playlistId", async (req, res) => {
   try {
     const { playlistId } = req.params;
+
     if (!isValidObjectId(playlistId))
       return res.status(400).send({ err: "invaild playlist id. " });
 
-    const playlist = await Playlist.findOneAndDelete({ _id: playlistId });
+    // *** 삭제하려면 playlist 및 미래 day에 존재하면 안 됨
+    const playlist = await Playlist.findOne({ _id: playlistId });
     if (!playlist)
-      return res.status(400).send({ err: "playlist does not exist. " });
+      return res.status(404).send({ err: "playlist does not exist. " });
+
+    await playlist.deleteOne();
 
     res.send({ success: true, playlist });
   } catch (err) {
@@ -405,49 +248,25 @@ playlistRouter.delete("/:playlistId", async (req, res) => {
   }
 });
 
-// 플리 북마크, controller resource
-playlistRouter.post("/:playlistId/bookmark", async (req, res) => {
+// 플리 북마크 토글, controller resource
+playlistRouter.post("/:playlistId/toggleBookmark", async (req, res) => {
   try {
     const { playlistId } = req.params;
+
     if (!isValidObjectId(playlistId))
       return res.status(400).send({ err: "invalid playlist id. " });
 
-    const playlist = await Playlist.findOneAndUpdate(
-      { _id: playlistId, isBookmarked: false },
-      { isBookmarked: true },
+    let playlist = await Playlist.findOne({ _id: playlistId });
+    if (!playlist)
+      return res.status(404).send({ err: "playlist does not exist. " });
+
+    playlist = await Playlist.findOneAndUpdate(
+      { _id: playlistId },
+      { bookmark: !playlist.bookmark },
       { new: true }
     );
 
-    if (!playlist)
-      return res.status(400).send({
-        err: "playlist does not exist, or already bookmarked playlist. ",
-      });
-
-    res.send({ success: true, playlist });
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
-  }
-});
-
-// 플리 북마크 해제, controller resource
-playlistRouter.post("/:playlistId/unbookmark", async (req, res) => {
-  try {
-    const { playlistId } = req.params;
-    if (!isValidObjectId(playlistId))
-      return res.status(400).send({ err: "invalid playlist id. " });
-
-    const playlist = Playlist.findOneAndUpdate(
-      { _id: playlistId, isBookmarked: true },
-      { isBookmarked: false },
-      { new: true }
-    );
-
-    if (!playlist)
-      return res.status(400).send({
-        err: "playlist does not exist, or already unbookmarked playlist. ",
-      });
-
-    res.send({ success: true, playlist });
+    res.send({ success: true, playlist, isBookmark: playlist.bookmark });
   } catch (err) {
     return res.status(400).send({ err: err.message });
   }
@@ -456,105 +275,106 @@ playlistRouter.post("/:playlistId/unbookmark", async (req, res) => {
 // 플리 복사하기, controller resource
 playlistRouter.post(
   "/:playlistId/copy",
-  mkVideosFromPlaylistId,
+  mkRoutinesFromPlaylistId,
   checkExistedVideos,
-  async (req, res) => {
+  async (req, res, next) => {
     try {
-      const { days, originPlaylist } = req;
-      const { playlistId: originPlaylistId } = req.params;
-      const { userId, folderId, publicLevel = 1 } = req.body;
-      if (!originPlaylist)
-        return res.status(400).send({ err: "playlist does not exist. " });
+      const { originPlaylist } = req;
+      const {
+        userId,
+        title,
+        publicLevel = 1,
+        willMoveExistedVideos = false,
+      } = req.body;
 
       if (!userId || !isValidObjectId(userId))
         return res.status(400).send({ err: "invaild user id. " });
-      if (folderId && !isValidObjectId(folderId))
-        return res.status(400).send({ err: "invalid folder id. " });
 
-      if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
-        return res
-          .status(400)
-          .send({ err: "publicLevel must be a 1-3 integer. " });
-
-      let promises = Promise.all([User.findOne({ _id: userId })]);
-      if (folderId)
-        promises = Promise.all([
-          promises,
-          Folder.findOne({ _id: folderId, user: userId }),
-        ]);
-      else
-        promises = Promise.all([
-          promises,
-          Folder.findOne({ user: userId, publicLevel: 0 }),
-        ]);
-
-      const [user, folder] = await promises;
-      if (!user) return res.status(400).send({ err: "user does not exist. " });
-      if (!folder)
-        return res
-          .status(400)
-          .send({ err: "folder does not exist, or not owned by user. " });
+      const user = await User.findOne({ _id: userId });
+      if (!user) return res.status(404).send({ err: "user does not exist. " });
 
       if (
-        // 내 플리가 아닌 플리를 복사할 때, publicLevel이 1이면 권한 없음
-        originPlaylist.publicLevel === 1 &&
+        title !== undefined &&
+        (typeof title !== "string" || title.length <= 0)
+      )
+        return res.status(400).send({ err: "title must be a string. " });
+      if (title === undefined) req.body.title = originPlaylist.title;
+
+      if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
+        return res.status(400).send({ err: "publicLevel must be 1, 2 or 3. " });
+
+      // 같은 플리를 변형해서 살짝만 다르게 만들 수 있음,
+      // 폴더와 달리 자신의 플리 복사는 OK
+      if (
+        originPlaylist.publicLevel <= 1 &&
         originPlaylist.user.toString() !== userId
       )
-        return res.status(400).send({ err: "playlist disabled for coyping. " });
+        return res
+          .status(403)
+          .send({ err: "this playlist is disabled for coyping. " });
 
-      // 새 플리 생성
-      const newPlaylist = new Playlist({
-        name: originPlaylist.name,
-        tags: originPlaylist.tags,
-        duration: originPlaylist.duration,
+      // 본인 플리이고 willMoveExistedVideos === false인 경우, 새 폴더 생성 또는 기존 폴더 찾을 필요 없음
+      if (!willMoveExistedVideos && originPlaylist.user.toString() === userId)
+        next("route");
+      // 본인 플리가 아니거나 특정 폴더로 플리의 영상들 모두 옮기는 경우, 영상 저장 준비
+      else next();
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  },
+  mkOrFindFolder,
+  mkPromisesThatSaveVideos,
+  mkValidRoutines,
+  async (req, res) => {
+    try {
+      const { promises, originPlaylist, routines, folder, resObj } = req;
+      const { folderId, userId, title, publicLevel = 1 } = req.body;
+
+      const playlist = new Playlist({
+        title: title ? title : originPlaylist.title,
         user: userId,
-      });
-      if (originPlaylist.youtubeId)
-        newPlaylist.youtubeId = originPlaylist.youtubeId;
-      if (originPlaylist.successNotification)
-        newPlaylist.successNotification = originPlaylist.successNotification;
-      if (originPlaylist.failNotification)
-        newPlaylist.failNotification = originPlaylist.failNotification;
-
-      // 영상에 정보 추가
-      const willInsertedVideos = [];
-      days.forEach((day) => {
-        day.forEach((video) => {
-          if (!video.isExisted) {
-            video.folder._id = folder._id;
-            video.folder.name = folder.name;
-            video.folder.publicLevel = folder.publicLevel;
-            video.user = userId;
-
-            willInsertedVideos.push(video);
-          }
-        });
+        publicLevel,
+        routines,
       });
 
-      // 폴더와 새 플리에 영상들 넣어주기
-      newPlaylist.days = days;
-      folder.videos.push(...willInsertedVideos);
+      if (folderId || resObj.pushedVideoNum > 0) {
+        playlist.folder = folder._id;
+        resObj.folder = folder;
+      }
 
-      const [countedOriginPlaylist] = await Promise.all([
-        Playlist.updateOne(
-          { _id: originPlaylistId, user: { $ne: userId } },
-          { $inc: { sharedCount: 1 } }
-        ),
-        newPlaylist.save(),
-        Video.insertMany(willInsertedVideos),
-        folder.save(),
-      ]);
+      await Promise.all([promises, playlist.save()]);
 
-      res.send({
-        success: true,
-        playlist: newPlaylist,
-        insertedVideoNum: willInsertedVideos.length,
-        isSharedWithOther: countedOriginPlaylist.matchedCount ? true : false,
-      });
+      res.send({ success: true, playlist, ...resObj });
     } catch (err) {
       return res.status(400).send({ err: err.message });
     }
   }
 );
+
+// 본인 플리이고 willMoveExistedVideos === false인 경우 (새 폴더 생성 또는 기존 폴더 찾을 필요 없음)
+playlistRouter.post("/:playlistId/copy", async (req, res) => {
+  try {
+    const { originPlaylist } = req;
+    const { userId, publicLevel = 1 } = req.body;
+
+    const playlist = new Playlist({
+      title: originPlaylist.title,
+      user: userId,
+      publicLevel,
+      tags: originPlaylist.tags,
+      duration: originPlaylist.duration,
+      routines: originPlaylist.routines,
+      successNotification: originPlaylist.successNotification,
+      failNotification: originPlaylist.failNotification,
+    });
+    if (originPlaylist.folder) playlist.folder = originPlaylist.folder;
+
+    await playlist.save();
+
+    return res.send({ success: true, playlist });
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+});
 
 module.exports = { playlistRouter };
