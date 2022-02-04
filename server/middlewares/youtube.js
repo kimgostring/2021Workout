@@ -51,19 +51,43 @@ const _mkVideosFromYoutubePlaylistId = async (youtubePlaylistId) => {
     let videos = [],
       youtubePlaylistTitle;
     if (youtubePlaylistId) {
+      const maxVideoNum = 50;
+      let count = 1,
+        totalVideoNum,
+        nextPageToken;
+
       // 1. playlistId로부터 playlistInfo, videos 불러오기
-      const [videosFromYoutube, playlistFromYoutube] = await Promise.all([
+      let [videosFromYoutube, playlistFromYoutube] = await Promise.all([
         axios
           .get(
-            `${YOUTUBE_URI}/playlistItems?key=${YOUTUBE_KEY}&part=snippet,contentDetails&playlistId=${youtubePlaylistId}`
+            `${YOUTUBE_URI}/playlistItems?key=${YOUTUBE_KEY}&part=snippet,contentDetails&maxResults=${maxVideoNum}&playlistId=${youtubePlaylistId}`
           )
-          .then((res) => res.data.items),
+          .then((res) => {
+            totalVideoNum = res.data.pageInfo.totalResults;
+            nextPageToken = res.data.nextPageToken;
+
+            return res.data.items;
+          }),
         axios
           .get(
             `${YOUTUBE_URI}/playlists?key=${YOUTUBE_KEY}&part=snippet,contentDetails&id=${youtubePlaylistId}`
           )
           .then((res) => res.data.items[0]),
       ]);
+
+      // youtube playlist에 50개 이상의 영상 존재하는 경우, 추가적인 호출 필요
+      while (maxVideoNum * count < totalVideoNum) {
+        videosFromYoutube = await axios
+          .get(
+            `${YOUTUBE_URI}/playlistItems?key=${YOUTUBE_KEY}&part=snippet,contentDetails&maxResults=${maxVideoNum}&playlistId=${youtubePlaylistId}&pageToken=${nextPageToken}`
+          )
+          .then((res) => {
+            nextPageToken = res.data.nextPageToken;
+            return [...videosFromYoutube, ...res.data.items];
+          });
+
+        count++;
+      }
 
       // 2. 필요한 정보만 얻어오기
       // 플리 이름 빼오기
