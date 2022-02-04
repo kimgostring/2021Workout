@@ -113,7 +113,6 @@ const mkOrFindFolder = async (req, res, next) => {
     let folder = null;
     if (willMkNewFolder) {
       // 새 폴더 생성
-
       if (typeof title !== "string" || title.length <= 0)
         return res.status(400).send({ err: "title must be a string. " });
 

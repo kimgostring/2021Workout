@@ -105,7 +105,6 @@ const mkValidRoutines = async (req, res, next) => {
 
     let i = 0,
       tempVideo;
-
     routines = routines.map((routine) => {
       routine.videos = routine.videos.map((video) => {
         tempVideo = video;
@@ -198,10 +197,6 @@ const checkPlaylistValidation = (req, res, next) => {
     if (routines !== undefined) {
       if (!Array.isArray(routines))
         return res.status(400).send({ err: "routines must be an array. " });
-      if (routines.length <= 0)
-        return res
-          .status(400)
-          .send({ err: "at least one routine is required. " });
       if (
         !routines.every(
           (routine) =>

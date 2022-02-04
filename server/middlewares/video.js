@@ -156,8 +156,7 @@ const checkVideoValidation = (req, res, next) => {
   }
 };
 
-// 내부 구현 함수
-// saveVideo, saveVideos 미들웨어에서 사용됨
+// 내부 구현 함수, mkPromisesThatSaveVideo(s) 미들웨어에서 사용
 const _classifyVideo = ({
   video,
   folder,
