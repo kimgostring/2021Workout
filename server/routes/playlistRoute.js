@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { isValidObjectId } = require("mongoose");
 const { Playlist, Folder, User } = require("../models");
 const {
+  mkVideosFromYoutubePlaylistId,
   mkRoutinesFromYoutubePlaylistIds,
   mkRoutinesFromPlaylistId,
   checkExistedVideos,
@@ -387,5 +388,173 @@ playlistRouter.post("/:playlistId/copy", async (req, res) => {
     return res.status(400).send({ err: err.message });
   }
 });
+
+// PlayInfo 초기화, controller resource
+playlistRouter.post("/:playlistId/initPlayInfo", async (req, res) => {
+  try {
+    const { playlistId } = req.params;
+
+    if (!isValidObjectId(playlistId))
+      return res.status(400).send({ err: "invaild playlist id. " });
+
+    let playlist = await Playlist.findOne({ _id: playlistId });
+    if (!playlist)
+      return res.status(404).send({ err: "playlist does not exist. " });
+
+    playlist = await Playlist.findOneAndUpdate(
+      { _id: playlistId },
+      {
+        "playInfo.successCount": 0,
+        "playInfo.playedCount": 0,
+        $unset: { "playInfo.avgStar": "" },
+      },
+      { new: true }
+    );
+
+    res.send({ success: true, playlist });
+  } catch (err) {
+    return res.status(400).send({ err: err.message });
+  }
+});
+
+// youtube playlist와 동기화 (routines에 있는 youtubeId 이용해 일치시키기), controller resource
+playlistRouter.post(
+  "/:playlistId/sync",
+  async (req, res, next) => {
+    try {
+      const { playlistId } = req.params;
+      const { syncIndex } = req.body;
+
+      if (!isValidObjectId(playlistId))
+        return res.status(400).send({ err: "invalid playlist id. " });
+
+      const playlist = await Playlist.findOne({ _id: playlistId });
+      if (!playlist)
+        return res.status(404).send({ err: "playlist does not exist. " });
+
+      // syncIndex 검사
+      if (
+        syncIndex !== undefined &&
+        (!Number.isInteger(syncIndex) ||
+          syncIndex < 0 ||
+          syncIndex >= playlist.routines.length)
+      )
+        return res.status(400).send({
+          err: "snyc index must be signed integer smaller than routines length. ",
+        });
+
+      // 동기화 시킬 youtube playlist id가 없는 경우, 작업 종료
+      if (
+        playlist.routines.every((routine) => !routine.youtubeId) ||
+        (syncIndex !== undefined && !playlist.routines[syncIndex].youtubeId)
+      )
+        res.send({ success: true, playlist });
+
+      req.playlist = playlist;
+
+      if (playlist.folder) req.body.folderId = playlist.folder;
+      req.body.title = playlist.title;
+
+      if (syncIndex !== undefined) {
+        // 인덱스 있는 경우, 하나의 routine만을 동기화
+        req.youtubePlaylistId = playlist.routines[syncIndex].youtubeId;
+
+        next("route");
+      } else {
+        // 인덱스 없는 경우
+        req.youtubePlaylistIds = playlist.routines.map(
+          (routine) => routine.youtubeId
+        );
+
+        next();
+      }
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  },
+  mkRoutinesFromYoutubePlaylistIds,
+  checkExistedVideos,
+  mkOrFindFolder,
+  mkPromisesThatSaveVideos,
+  mkValidRoutines,
+  (req, res, next) => {
+    try {
+      let { playlist, routines } = req;
+
+      routines = playlist.routines.map((playlistRoutine, ind) => {
+        // youtubeId가 있는 routine의 경우, 유튜브 API로 불러온 routine 그대로 저장
+        if (playlistRoutine.youtubeId) return routines[ind];
+        // youtubeId가 없는 routine의 경우, 플리에 저장되어 있던 기존 routine으로 대체 (플리 변경사항 없음)
+        return playlistRoutine;
+      });
+
+      req.routines = routines;
+
+      next();
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  },
+  checkPlaylistValidation,
+  async (req, res) => {
+    try {
+      const { promises = null, playlist, folder, resObj = {} } = req;
+
+      if (resObj.pushedVideoNum > 0) {
+        playlist.folder = folder._id;
+        resObj.folder = folder;
+      }
+
+      await Promise.all([promises, playlist.save()]);
+
+      return res.send({ success: true, playlist, ...resObj });
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  }
+);
+
+// 인덱스 있는 경우, 하나의 routine만을 동기화
+playlistRouter.post(
+  "/:playlistId/sync",
+  mkVideosFromYoutubePlaylistId,
+  checkExistedVideos,
+  mkOrFindFolder,
+  mkPromisesThatSaveVideos,
+  (req, res, next) => {
+    try {
+      const { syncIndex } = req.body;
+      let { playlist, youtubePlaylistId, videos } = req;
+
+      const routines = playlist.routines.map((playlistRoutine, ind) => {
+        if (ind === syncIndex) return { youtubeId: youtubePlaylistId, videos };
+        return playlistRoutine;
+      });
+
+      req.routines = routines;
+
+      next();
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  },
+  checkPlaylistValidation,
+  async (req, res) => {
+    try {
+      const { promises = null, playlist, folder, resObj = {} } = req;
+
+      if (resObj.pushedVideoNum > 0) {
+        playlist.folder = folder._id;
+        resObj.folder = folder;
+      }
+
+      await Promise.all([promises, playlist.save()]);
+
+      return res.send({ success: true, playlist, ...resObj });
+    } catch (err) {
+      return res.status(400).send({ err: err.message });
+    }
+  }
+);
 
 module.exports = { playlistRouter };
