@@ -108,7 +108,11 @@ const checkFolderValidation = (req, res, next) => {
 
 const mkOrFindFolder = async (req, res, next) => {
   try {
-    const { userId, folderId, title, willMkNewFolder = true } = req.body;
+    const { playlistTitle } = req;
+    const { userId, title, willMkNewFolder = false } = req.body;
+
+    let { folderId } = req.body;
+    if (folderId !== undefined) folderId = req.folderId;
 
     let folder = null;
     if (willMkNewFolder) {
@@ -116,7 +120,10 @@ const mkOrFindFolder = async (req, res, next) => {
       if (typeof title !== "string" || title.length <= 0)
         return res.status(400).send({ err: "title must be a string. " });
 
-      folder = new Folder({ user: userId, title });
+      folder = new Folder({
+        user: userId,
+        title: title ? title : playlistTitle,
+      });
     } else {
       // 기존 폴더에 저장
       // folder id 입력받은 경우 유효한 id여야 함

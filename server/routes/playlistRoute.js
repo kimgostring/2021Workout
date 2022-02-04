@@ -310,7 +310,7 @@ playlistRouter.post(
         (typeof title !== "string" || title.length <= 0)
       )
         return res.status(400).send({ err: "title must be a string. " });
-      if (title === undefined) req.body.title = originPlaylist.title;
+      if (title === undefined) req.playlistTitle = originPlaylist.title;
 
       if (!(publicLevel === 1 || publicLevel === 2 || publicLevel === 3))
         return res.status(400).send({ err: "publicLevel must be 1, 2 or 3. " });
@@ -339,11 +339,11 @@ playlistRouter.post(
   mkValidRoutines,
   async (req, res) => {
     try {
-      const { promises, originPlaylist, routines, folder, resObj } = req;
+      const { promises, playlistTitle, routines, folder, resObj } = req;
       const { folderId, userId, title, publicLevel = 1 } = req.body;
 
       const playlist = new Playlist({
-        title: title ? title : originPlaylist.title,
+        title: title ? title : playlistTitle,
         user: userId,
         publicLevel,
         routines,
@@ -452,8 +452,8 @@ playlistRouter.post(
 
       req.playlist = playlist;
 
-      if (playlist.folder) req.body.folderId = playlist.folder;
-      req.body.title = playlist.title;
+      if (playlist.folder) req.folderId = playlist.folder._id;
+      req.playlistTitle = playlist.title;
 
       if (syncIndex !== undefined) {
         // 인덱스 있는 경우, 하나의 routine만을 동기화
