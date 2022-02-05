@@ -278,7 +278,7 @@ playlistRouter.post("/:playlistId/toggleBookmark", async (req, res) => {
       { new: true }
     );
 
-    res.send({ success: true, playlist, isBookmark: playlist.bookmark });
+    res.send({ success: true, playlist, isBookmarked: playlist.bookmark });
   } catch (err) {
     return res.status(400).send({ err: err.message });
   }

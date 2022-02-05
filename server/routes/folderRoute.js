@@ -269,8 +269,8 @@ folderRouter.delete("/:folderId", async (req, res) => {
   }
 });
 
-// 폴더 북마크, controller resource
-folderRouter.post("/:folderId/bookmark", async (req, res) => {
+// 폴더 북마크 토글, controller resource
+folderRouter.post("/:folderId/toggleBookmark", async (req, res) => {
   try {
     const { folderId } = req.params;
 
@@ -286,38 +286,11 @@ folderRouter.post("/:folderId/bookmark", async (req, res) => {
 
     folder = await Folder.findOneAndUpdate(
       { _id: folderId },
-      { isBookmarked: true },
+      { bookmark: !folder.bookmark },
       { new: true }
     );
 
-    res.send({ success: true, folder });
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
-  }
-});
-
-// 폴더 북마크 해제, controller resource
-folderRouter.post("/:folderId/unbookmark", async (req, res) => {
-  try {
-    const { folderId } = req.params;
-
-    if (!isValidObjectId(folderId))
-      return res.status(400).send({ err: "invalid folder id. " });
-
-    let folder = await Folder.findOne({ _id: folderId });
-
-    if (!folder)
-      return res.status(404).send({ err: "folder does not exist. " });
-    if (folder.publicLevel === 0)
-      return res.status(403).send({ err: "secret folder cannot unbookmark. " });
-
-    folder = await Folder.findOneAndUpdate(
-      { _id: folderId },
-      { isBookmarked: false },
-      { new: true }
-    );
-
-    res.send({ success: true, folder });
+    res.send({ success: true, folder, isBookmarked: folder.bookmark });
   } catch (err) {
     return res.status(400).send({ err: err.message });
   }

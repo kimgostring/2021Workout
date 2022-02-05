@@ -6,7 +6,7 @@ const folderSchema = new Schema(
     title: { type: String, required: true, minlength: 1 },
     youtubeId: { type: String },
     isDefault: { type: Boolean, required: true, default: false },
-    isBookmarked: { type: Boolean, required: true, default: false },
+    bookmark: { type: Boolean, required: true, default: false },
     publicLevel: { type: Number, required: true, min: 0, max: 3, default: 1 }, // 0 - 감춰진 폴더, 1 - 나만보기, 2 - id공개, 3 - 전체공개
     tags: [
       {

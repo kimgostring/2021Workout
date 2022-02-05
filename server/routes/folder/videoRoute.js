@@ -347,8 +347,8 @@ videoRouter.post("/:videoId/move", async (req, res) => {
   }
 });
 
-// 영상 북마크, controller resource
-videoRouter.post("/:videoId/bookmark", async (req, res) => {
+// 영상 북마크 토글, controller resource
+videoRouter.post("/:videoId/toggleBookmark", async (req, res) => {
   try {
     const { videoId, folderId } = req.params;
 
@@ -372,69 +372,23 @@ videoRouter.post("/:videoId/bookmark", async (req, res) => {
     if (folder.publicLevel === 0)
       return res
         .status(403)
-        .send({ err: "video in secret folder cannot bookmark. " });
+        .send({ err: "video in secret folder cannot (un)bookmark. " });
 
+    const isBookmarked = !video.bookmark;
     [video, folder] = await Promise.all([
       Video.findOneAndUpdate(
         { _id: videoId },
-        { isBookmarked: true },
+        { bookmark: isBookmarked },
         { new: true }
       ),
       Folder.findOneAndUpdate(
         { _id: folderId, "videos._id": videoId },
-        { "videos.$.isBookmarked": true },
+        { "videos.$.bookmark": isBookmarked },
         { new: true }
       ),
     ]);
 
-    res.send({ success: true, video, folder });
-  } catch (err) {
-    return res.status(400).send({ err: err.message });
-  }
-});
-
-// 영상 북마크 해제, controller resource
-videoRouter.post("/:videoId/unbookmark", async (req, res) => {
-  try {
-    const { videoId, folderId } = req.params;
-
-    if (!isValidObjectId(videoId))
-      return res.status(400).send({ err: "invalid video id. " });
-    if (!isValidObjectId(folderId))
-      return res.status(400).send({ err: "invaild folder id. " });
-
-    let [video, folder] = await Promise.all([
-      Video.findOne({ _id: videoId }),
-      Folder.findOne({ _id: folderId }),
-    ]);
-
-    if (!video) return res.status(404).send({ err: "video does not exist. " });
-    if (!folder)
-      return res.status(404).send({ err: "folder does not exist. " });
-
-    if (video.folder._id.toString() !== folderId)
-      return res
-        .status(403)
-        .send({ err: "this video is not in this folder. " });
-    if (folder.publicLevel === 0)
-      return res
-        .status(403)
-        .send({ err: "video in secret folder cannot unbookmark. " });
-
-    [video, folder] = await Promise.all([
-      Video.findOneAndUpdate(
-        { _id: videoId },
-        { isBookmarked: false },
-        { new: true }
-      ),
-      Folder.findOneAndUpdate(
-        { _id: folderId, "videos._id": videoId },
-        { "videos.$.isBookmarked": false },
-        { new: true }
-      ),
-    ]);
-
-    res.send({ success: true, video, folder });
+    res.send({ success: true, video, folder, isBookmarked });
   } catch (err) {
     return res.status(400).send({ err: err.message });
   }

@@ -15,7 +15,7 @@ const videoSchema = new Schema(
     user: { type: Types.ObjectId, required: true, ref: "user", index: true },
     title: { type: String, required: true, index: true, minlength: 1 },
     youtubeId: { type: String, required: true },
-    isBookmarked: { type: Boolean, required: true, default: false },
+    bookmark: { type: Boolean, required: true, default: false },
     tags: [
       {
         type: String,
